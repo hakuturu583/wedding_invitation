@@ -12,6 +12,7 @@ pub mod model;
 pub mod pdf;
 pub mod svg;
 pub mod typeset;
+pub mod xlsx;
 pub mod zip;
 
 use wasm_bindgen::prelude::*;
@@ -65,7 +66,7 @@ pub fn build_pdf(order: &Order, doc: Doc) -> Result<Vec<u8>, String> {
 pub fn build_zip(order: &Order) -> Result<Vec<u8>, String> {
     let card = build_pdf(order, Doc::Card)?;
     let envelope = build_pdf(order, Doc::Envelope)?;
-    Ok(zip::store(&[(CARD_FILE, &card), (ENVELOPE_FILE, &envelope)]))
+    Ok(zip::write(&[(CARD_FILE, &card), (ENVELOPE_FILE, &envelope)], false))
 }
 
 /// 指定したゲスト 1 名分の 1 ページ目を SVG で返す.
@@ -145,4 +146,34 @@ pub fn parse_guests_csv(data: &[u8]) -> Result<String, JsError> {
 #[wasm_bindgen(js_name = sampleCsv)]
 pub fn sample_csv() -> Vec<u8> {
     csv::sample_csv()
+}
+
+/// 現在の入力内容を Excel(xlsx)に書き出す。ゲストが 0 名でもよい.
+#[wasm_bindgen(js_name = exportXlsx)]
+pub fn export_xlsx(order_json: &str) -> Result<Vec<u8>, JsError> {
+    let order: Order = serde_json::from_str(order_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let order = Order {
+        event: order.event.cleaned(),
+        guests: order
+            .guests
+            .into_iter()
+            .map(model::Guest::cleaned)
+            .filter(|g| !g.name.is_empty())
+            .collect(),
+        ..order
+    };
+    Ok(xlsx::write_workbook(&order))
+}
+
+/// サンプル入りの Excel テンプレート.
+#[wasm_bindgen(js_name = templateXlsx)]
+pub fn template_xlsx() -> Vec<u8> {
+    xlsx::template()
+}
+
+/// Excel(xlsx)を読み込み、{order, warnings} の JSON を返す.
+#[wasm_bindgen(js_name = importXlsx)]
+pub fn import_xlsx(data: &[u8]) -> Result<String, JsError> {
+    let imported = xlsx::read_workbook(data).map_err(js_err)?;
+    Ok(serde_json::to_string(&imported).unwrap_or_default())
 }

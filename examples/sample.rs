@@ -32,5 +32,6 @@ fn main() {
             .unwrap();
         }
     }
+    std::fs::write(format!("{out}/template.xlsx"), wedding_invitation::xlsx::template()).unwrap();
     println!("{out} に書き出しました");
 }

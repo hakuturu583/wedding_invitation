@@ -19,6 +19,16 @@
 <main class="layout">
   <form id="form" class="editor" autocomplete="off" onsubmit="return false">
 
+    <section class="panel excel">
+      <h2>Excel でまとめて入力</h2>
+      <p class="lead">デザイン・挙式情報・出力の設定・ゲスト名簿を 1 つの Excel ファイルにまとめて保存できます。テンプレートに書き込んで読み込むと、画面の入力がすべてその内容になります。</p>
+      <div class="toolbar">
+        <button type="button" id="export-xlsx">Excel テンプレートをダウンロード(今の入力内容入り)</button>
+        <label class="button-like primary-like">Excel を読み込む<input type="file" id="xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+      </div>
+      <p class="notice" id="notice" role="status"></p>
+    </section>
+
     <section class="panel">
       <h2><span class="step">1</span>デザイン</h2>
       <div class="designs" id="designs"></div>

@@ -143,6 +143,14 @@ fn quote(cell: &str) -> String {
     }
 }
 
+/// ひな形に入れるサンプルのゲスト.
+pub fn sample_guests() -> Vec<Guest> {
+    SAMPLE_ROWS
+        .iter()
+        .map(|r| Guest::new(r[0], r[1], r[2], r[3], r[4]))
+        .collect()
+}
+
 /// ひな形 CSV(Excel で文字化けしないよう BOM 付き UTF-8).
 pub fn sample_csv() -> Vec<u8> {
     let mut out = String::from("\u{FEFF}");

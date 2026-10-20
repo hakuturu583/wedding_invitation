@@ -65,6 +65,25 @@ impl Date {
         Some(Date { year, month, day })
     }
 
+    /// 1970-01-01 からの日数から日付を求める(civil_from_days).
+    pub fn from_unix_days(days: i64) -> Date {
+        let z = days + 719468;
+        let era = if z >= 0 { z } else { z - 146096 } / 146097;
+        let doe = z - era * 146097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+        let year = (yoe + era * 400 + if month <= 2 { 1 } else { 0 }) as i32;
+        Date { year, month, day }
+    }
+
+    /// "2027-04-10" 形式.
+    pub fn iso(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+
     /// 0 = 月曜日.
     pub fn weekday(&self) -> usize {
         // days_from_civil (1970-01-01 は木曜日)
@@ -374,6 +393,9 @@ mod tests {
         assert_eq!(Date::parse("2026-10-20").unwrap().weekday(), 1); // 火曜日
         assert!(Date::parse("2027-02-30").is_none());
         assert!(Date::parse("abc").is_none());
+        assert_eq!(Date::from_unix_days(0).iso(), "1970-01-01");
+        assert_eq!(Date::from_unix_days(20739).iso(), "2026-10-13");
+        assert_eq!(Date::from_unix_days(-25569).iso(), "1899-12-30");
     }
 
     #[test]

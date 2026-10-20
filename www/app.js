@@ -8,6 +8,7 @@ const GUEST_FIELDS = ["name", "postal_code", "address1", "address2", "joint_name
 const STORAGE_KEY = "wedding-invitation-form";
 const FILE_NAMES = {
   zip: "wedding_invitation_print_data.zip",
+  xlsx: "wedding_invitation.xlsx",
   card: "invitation_cards.pdf",
   envelope: "envelopes.pdf",
 };
@@ -157,6 +158,12 @@ function order() {
   };
 }
 
+function showNotice(text, warn = false) {
+  const box = $("notice");
+  box.textContent = text;
+  box.classList.toggle("warn", warn);
+}
+
 function fill(state) {
   const event = { ...defaults, ...(state?.event || {}) };
   for (const [key, value] of Object.entries(event)) {
@@ -258,6 +265,34 @@ async function importCsv(file) {
   }
 }
 
+function exportXlsx() {
+  try {
+    const bytes = wasm.exportXlsx(JSON.stringify(order()));
+    download(bytes, FILE_NAMES.xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function importXlsx(file) {
+  showError(null);
+  showNotice("");
+  try {
+    const { order: imported, warnings } = JSON.parse(wasm.importXlsx(new Uint8Array(await file.arrayBuffer())));
+    if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
+    fill(imported);
+    if (!imported.guests.length) {
+      rows.innerHTML = "";
+      addGuest();
+    }
+    changed();
+    const summary = `「${file.name}」を読み込みました(ゲスト ${imported.guests.length} 名)`;
+    showNotice(warnings.length ? `${summary}\n${warnings.join("\n")}` : summary, warnings.length > 0);
+  } catch (err) {
+    showError(err);
+  }
+}
+
 function bindEvents() {
   form.addEventListener("input", changed);
   form.addEventListener("change", changed);
@@ -267,6 +302,11 @@ function bindEvents() {
   });
   $("csv").addEventListener("change", (e) => {
     if (e.target.files[0]) importCsv(e.target.files[0]);
+    e.target.value = "";
+  });
+  $("export-xlsx").addEventListener("click", exportXlsx);
+  $("xlsx").addEventListener("change", (e) => {
+    if (e.target.files[0]) importXlsx(e.target.files[0]);
     e.target.value = "";
   });
   $("sample-csv").addEventListener("click", (e) => {
