@@ -219,7 +219,11 @@ fn baseline(top: f32, lh: f32, size: f32) -> f32 {
 
 fn draw_card(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design) {
     let (w, h) = CARD_SIZE;
+    // 装飾は塗り足しの外にはみ出さないよう切り抜く
+    c.save();
+    c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
     (d.draw_card)(c, d, w, h, BLEED);
+    c.restore();
 
     // タイトル
     c.set_font(FontId::Script, 26.0);
@@ -358,7 +362,10 @@ fn name_columns(guest: &Guest) -> (Vec<(String, f32)>, String, f32) {
 
 fn draw_envelope_front(c: &mut Canvas, guest: &Guest, d: &Design) {
     let (w, h) = ENVELOPE_SIZE;
+    c.save();
+    c.clip_rect(0.0, 0.0, w, h);
     (d.draw_envelope)(c, d, w, h);
+    c.restore();
     c.set_fill(d.text);
 
     // 郵便番号(横書き、右上)

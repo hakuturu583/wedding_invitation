@@ -86,6 +86,13 @@ pub enum Op {
         y: f32,
         text: String,
     },
+    /// 以降の描画を矩形で切り抜く(Restore で解除)
+    ClipRect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
 }
 
 pub type Rect = [f32; 4];
@@ -158,6 +165,11 @@ impl Canvas {
     }
     pub fn set_line_width(&mut self, w: f32) {
         self.op(Op::LineWidth(w));
+    }
+
+    /// 次の restore までの描画を矩形の内側に切り抜く.
+    pub fn clip_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.op(Op::ClipRect { x, y, w, h });
     }
 
     pub fn draw_path(&mut self, path: Path, stroke: bool, fill: bool) {

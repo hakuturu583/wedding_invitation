@@ -86,6 +86,11 @@ fn content_stream(page: &Page, uses: &mut BTreeMap<FontId, FontUse>) -> Vec<u8> 
                     (false, false) => c.end_path(),
                 };
             }
+            Op::ClipRect { x, y, w, h } => {
+                c.rect(*x, *y, *w, *h);
+                c.clip_nonzero();
+                c.end_path();
+            }
             Op::Text { font, size, x, y, text } => {
                 let bytes = encode_text(*font, text, uses);
                 c.begin_text();

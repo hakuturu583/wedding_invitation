@@ -500,28 +500,57 @@ fn mutsuki_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
 
 // ------------------------------------------------------------------ 雪
 
-const ICE: Cmyk = Cmyk(0.12, 0.03, 0.0, 0.0);
-const SNOW_SHADOW: Cmyk = Cmyk(0.05, 0.01, 0.0, 0.0);
-const SNOW_BLUE: Cmyk = Cmyk(0.40, 0.10, 0.0, 0.0);
-const WINTER_BLUE: Cmyk = Cmyk(0.85, 0.50, 0.10, 0.15);
-const FIR: Cmyk = Cmyk(0.70, 0.30, 0.45, 0.30);
+const SILVER_GROUND: Cmyk = Cmyk(0.08, 0.04, 0.02, 0.03);
+const SILVER: Cmyk = Cmyk(0.25, 0.15, 0.08, 0.20);
+const SILVER_LIGHT: Cmyk = Cmyk(0.14, 0.08, 0.04, 0.08);
+const INDIGO: Cmyk = Cmyk(0.90, 0.65, 0.20, 0.30);
 
-/// 6 本の枝をもつ雪の結晶(線画).
-fn snowflake(c: &mut Canvas, x: f32, y: f32, r: f32, color: Cmyk, rotation: f32) {
+/// 雪輪文様(ゆるくふくらむ 6 つの弧と、その間の小さな丸い切れ込み)の輪郭.
+fn yukiwa_path(r: f32) -> Path {
+    let pt = |deg: f32, rad: f32| {
+        let a = deg.to_radians();
+        (rad * a.cos(), rad * a.sin())
+    };
+    let mut p = Path::new();
+    let (x, y) = pt(94.0, r * 0.95);
+    p.move_to(x, y);
+    for i in 0..6 {
+        let a = 90.0 + i as f32 * 60.0;
+        // ふくらみ
+        let (x1, y1) = pt(a + 20.0, r * 1.07);
+        let (x2, y2) = pt(a + 40.0, r * 1.07);
+        let (x, y) = pt(a + 56.0, r * 0.95);
+        p.curve_to(x1, y1, x2, y2, x, y);
+        // 小さな丸い切れ込み
+        let (cx1, cy1) = pt(a + 56.5, r * 0.80);
+        let (cx2, cy2) = pt(a + 63.5, r * 0.80);
+        let (x, y) = pt(a + 64.0, r * 0.95);
+        p.curve_to(cx1, cy1, cx2, cy2, x, y);
+    }
+    p.close();
+    p
+}
+
+/// 雪輪を 1 つ描く。fill があれば塗り、line があればその色で輪郭を描く.
+fn yukiwa(c: &mut Canvas, x: f32, y: f32, r: f32, fill: Option<Cmyk>, line: Option<Cmyk>, rotation: f32) {
     c.save();
     c.translate(x, y);
     c.rotate(rotation);
-    c.set_stroke(color);
-    c.set_line_width((r * 0.07).clamp(0.35, 1.0));
-    for _ in 0..6 {
-        c.line(0.0, 0.0, r, 0.0);
-        for (t, len) in [(0.45, 0.22), (0.72, 0.16)] {
-            c.line(r * t, 0.0, r * (t + len), r * len);
-            c.line(r * t, 0.0, r * (t + len), -r * len);
-        }
-        c.rotate(60.0);
+    if let Some(col) = fill {
+        c.set_fill(col);
     }
+    if let Some(col) = line {
+        c.set_stroke(col);
+        c.set_line_width((r * 0.035).clamp(0.3, 0.8));
+    }
+    c.draw_path(yukiwa_path(r), line.is_some(), fill.is_some());
     c.restore();
+}
+
+/// 紙白の雪輪の内側に、銀の細い雪輪を重ねる.
+fn yukiwa_double(c: &mut Canvas, x: f32, y: f32, r: f32, rotation: f32) {
+    yukiwa(c, x, y, r, Some(Cmyk::PAPER), None, rotation);
+    yukiwa(c, x, y, r * 0.72, None, Some(SILVER), rotation);
 }
 
 /// 決まった並びの擬似乱数(毎回同じ位置に雪を降らせる).
@@ -550,116 +579,54 @@ fn falling_snow(c: &mut Canvas, w: f32, h: f32, avoid: [f32; 4], color: Cmyk, co
     }
 }
 
-/// 下端の雪原(奥の影と手前の紙白の 2 層).
-fn snowdrift(c: &mut Canvas, w: f32, bleed: f32) {
-    let x0 = -bleed;
-    let x1 = w + bleed;
-    c.set_fill(SNOW_SHADOW);
-    let mut p = Path::new();
-    p.move_to(x0, -bleed)
-        .line_to(x0, 12.0 * MM)
-        .curve_to(20.0 * MM, 17.0 * MM, 45.0 * MM, 8.0 * MM, 70.0 * MM, 12.0 * MM)
-        .curve_to(85.0 * MM, 14.5 * MM, 98.0 * MM, 16.0 * MM, x1, 15.0 * MM)
-        .line_to(x1, -bleed)
-        .close();
-    c.draw_path(p, false, true);
-    c.set_fill(Cmyk::PAPER);
-    let mut p = Path::new();
-    p.move_to(x0, -bleed)
-        .line_to(x0, 7.0 * MM)
-        .curve_to(25.0 * MM, 4.0 * MM, 40.0 * MM, 11.0 * MM, 62.0 * MM, 8.5 * MM)
-        .curve_to(80.0 * MM, 6.5 * MM, 95.0 * MM, 10.0 * MM, x1, 9.0 * MM)
-        .line_to(x1, -bleed)
-        .close();
-    c.draw_path(p, false, true);
-}
-
-/// 雪をかぶったもみの木。(x, y) は根元.
-fn fir_tree(c: &mut Canvas, x: f32, y: f32, height: f32) {
-    let w = height * 0.5;
-    c.set_fill(FIR);
-    let mut p = Path::new();
-    p.move_to(x - height * 0.04, y).line_to(x + height * 0.04, y);
-    p.line_to(x + height * 0.04, y + height * 0.12)
-        .line_to(x - height * 0.04, y + height * 0.12)
-        .close();
-    c.draw_path(p, false, true);
-    for (i, (base, top, half)) in [(0.10, 0.55, 0.50), (0.35, 0.80, 0.38), (0.60, 1.0, 0.26)]
-        .iter()
-        .enumerate()
-    {
-        c.set_fill(FIR);
-        let mut p = Path::new();
-        p.move_to(x - w * half * 2.0, y + height * base)
-            .line_to(x + w * half * 2.0, y + height * base)
-            .line_to(x, y + height * top)
-            .close();
-        c.draw_path(p, false, true);
-        // 枝に積もった雪
-        c.set_fill(Cmyk::PAPER);
-        let sw = w * half * 2.0 * (0.9 - 0.1 * i as f32);
-        let mut p = Path::new();
-        p.move_to(x - sw, y + height * base)
-            .curve_to(
-                x - sw * 0.5,
-                y + height * (base + 0.06),
-                x + sw * 0.5,
-                y + height * (base + 0.06),
-                x + sw,
-                y + height * base,
-            )
-            .curve_to(
-                x + sw * 0.5,
-                y + height * (base + 0.02),
-                x - sw * 0.5,
-                y + height * (base + 0.02),
-                x - sw,
-                y + height * base,
-            )
-            .close();
-        c.draw_path(p, false, true);
-    }
-}
-
 fn yuki_card(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32) {
     fill_background(c, d, w, h, bleed);
+    c.set_stroke(SILVER);
+    c.set_line_width(0.4);
+    c.rect(5.0 * MM, 5.0 * MM, w - 10.0 * MM, h - 10.0 * MM, true, false);
+
     let text_area = [12.0 * MM, 17.0 * MM, w - 12.0 * MM, h - 12.0 * MM];
-    falling_snow(c, w, h, text_area, Cmyk::PAPER, 46, 7);
-    falling_snow(c, w, h, text_area, SNOW_BLUE, 14, 11);
+    falling_snow(c, w, h, text_area, Cmyk::PAPER, 22, 7);
+    falling_snow(c, w, h, text_area, SILVER_LIGHT, 8, 11);
 
     let (wm, hm) = (w / MM, h / MM);
-    snowflake(c, (wm - 4.0) * MM, (hm - 6.0) * MM, 10.0 * MM, Cmyk::PAPER, 8.0);
-    snowflake(c, (wm - 15.0) * MM, (hm - 4.0) * MM, 4.0 * MM, SNOW_BLUE, 20.0);
-    snowflake(c, 6.0 * MM, (hm - 9.0) * MM, 5.5 * MM, SNOW_BLUE, 0.0);
-    snowflake(c, 4.0 * MM, (hm - 24.0) * MM, 3.0 * MM, Cmyk::PAPER, 15.0);
-    snowflake(c, (wm - 5.0) * MM, (hm - 26.0) * MM, 3.2 * MM, SNOW_BLUE, 30.0);
-    snowflake(c, 5.0 * MM, 30.0 * MM, 3.4 * MM, Cmyk::PAPER, 10.0);
-
-    c.set_stroke(Cmyk::PAPER);
-    c.set_line_width(0.6);
-    c.rect(5.0 * MM, 5.0 * MM, w - 10.0 * MM, h - 10.0 * MM, true, false);
-    c.set_line_width(0.3);
-    c.rect(6.2 * MM, 6.2 * MM, w - 12.4 * MM, h - 12.4 * MM, true, false);
-
-    snowdrift(c, w, bleed);
-    fir_tree(c, (wm - 9.0) * MM, 10.0 * MM, 17.0 * MM);
-    fir_tree(c, (wm - 17.0) * MM, 8.5 * MM, 11.0 * MM);
-    fir_tree(c, (wm - 3.0) * MM, 12.0 * MM, 9.0 * MM);
-    fir_tree(c, 8.0 * MM, 6.0 * MM, 9.0 * MM);
+    // 右上
+    yukiwa_double(c, (wm - 3.0) * MM, (hm - 5.0) * MM, 12.0 * MM, 8.0);
+    yukiwa(c, (wm - 24.0) * MM, (hm - 4.5) * MM, 4.5 * MM, None, Some(SILVER), 20.0);
+    yukiwa(
+        c,
+        (wm - 5.0) * MM,
+        (hm - 25.0) * MM,
+        3.2 * MM,
+        Some(SILVER_LIGHT),
+        None,
+        0.0,
+    );
+    // 左上
+    yukiwa(
+        c,
+        7.0 * MM,
+        (hm - 12.0) * MM,
+        6.0 * MM,
+        Some(Cmyk::PAPER),
+        Some(SILVER_LIGHT),
+        15.0,
+    );
+    yukiwa(c, 3.5 * MM, (hm - 28.0) * MM, 3.0 * MM, None, Some(SILVER), 0.0);
+    // 左下
+    yukiwa_double(c, 4.0 * MM, 7.0 * MM, 12.0 * MM, 25.0);
+    yukiwa(c, 25.0 * MM, 4.5 * MM, 4.5 * MM, None, Some(SILVER), 10.0);
+    yukiwa(c, 4.0 * MM, 32.0 * MM, 3.0 * MM, Some(Cmyk::PAPER), None, 0.0);
+    // 右下
+    yukiwa(c, (wm - 8.0) * MM, 11.0 * MM, 6.0 * MM, Some(SILVER_LIGHT), None, 30.0);
+    yukiwa(c, (wm - 4.0) * MM, 25.0 * MM, 3.0 * MM, None, Some(SILVER), 0.0);
 }
 
 fn yuki_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
-    snowflake(c, 12.0 * MM, 14.0 * MM, 5.5 * MM, SNOW_BLUE, 0.0);
-    snowflake(c, 21.0 * MM, 9.0 * MM, 3.0 * MM, SNOW_BLUE, 20.0);
-    c.set_fill(SNOW_BLUE);
-    for (x, y, r) in [
-        (20.0, 18.0, 0.6),
-        (26.0, 14.0, 0.45),
-        (7.0, 22.0, 0.5),
-        (16.0, 24.0, 0.4),
-    ] {
-        c.circle(x * MM, y * MM, r * MM, false, true);
-    }
+    yukiwa(c, 12.0 * MM, 14.0 * MM, 6.0 * MM, None, Some(SILVER), 10.0);
+    yukiwa(c, 12.0 * MM, 14.0 * MM, 4.3 * MM, None, Some(SILVER_LIGHT), 10.0);
+    yukiwa(c, 21.0 * MM, 9.0 * MM, 3.2 * MM, Some(SILVER_LIGHT), None, 0.0);
+    yukiwa(c, 22.0 * MM, 19.0 * MM, 2.0 * MM, None, Some(SILVER), 30.0);
 }
 
 // ------------------------------------------------------------------ 一覧
@@ -740,11 +707,11 @@ pub static DESIGNS: [Design; 6] = [
     Design {
         key: "yuki",
         name: "雪",
-        description: "淡い氷色に雪の結晶が舞い、雪原にもみの木が並ぶ冬のデザイン",
-        background: Some(ICE),
-        accent: WINTER_BLUE,
-        sub: SNOW_BLUE,
-        text: Cmyk(0.40, 0.20, 0.0, 0.75),
+        description: "銀鼠の地に雪輪文様を散らした、しっとり上品な和の冬デザイン",
+        background: Some(SILVER_GROUND),
+        accent: INDIGO,
+        sub: SILVER,
+        text: Cmyk(0.30, 0.15, 0.0, 0.80),
         title: "Wedding Invitation",
         draw_card: yuki_card,
         draw_envelope: yuki_envelope,

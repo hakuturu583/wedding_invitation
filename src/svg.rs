@@ -45,6 +45,8 @@ fn escape(s: &str) -> String {
 
 struct State {
     ctm: Matrix,
+    /// この状態で開いた切り抜き用の <g> の数
+    clips: usize,
     fill: String,
     stroke: String,
     line_width: f32,
@@ -59,23 +61,47 @@ pub fn write_svg(page: &Page) -> String {
     );
     let _ = write!(out, r##"<rect width="{w:.2}" height="{h:.2}" fill="#ffffff"/>"##);
     let mut stack = Vec::new();
+    let mut clip_id = 0;
     let mut st = State {
         ctm: [1.0, 0.0, 0.0, -1.0, 0.0, h],
+        clips: 0,
         fill: "#000000".into(),
         stroke: "#000000".into(),
         line_width: 1.0,
     };
     for op in &page.ops {
         match op {
-            Op::Save => stack.push(State {
-                fill: st.fill.clone(),
-                stroke: st.stroke.clone(),
-                ..st
-            }),
+            Op::Save => {
+                stack.push(State {
+                    fill: st.fill.clone(),
+                    stroke: st.stroke.clone(),
+                    ..st
+                });
+                st.clips = 0;
+            }
             Op::Restore => {
+                out.push_str(&"</g>".repeat(st.clips));
                 if let Some(s) = stack.pop() {
                     st = s;
                 }
+            }
+            Op::ClipRect { x, y, w, h } => {
+                // 現在の座標系での矩形を SVG の座標に直す(回転は使わない前提で外接矩形を取る)
+                let m = st.ctm;
+                let pts = [(*x, *y), (x + w, *y), (*x, y + h), (x + w, y + h)]
+                    .map(|(px, py)| (m[0] * px + m[2] * py + m[4], m[1] * px + m[3] * py + m[5]));
+                let x0 = pts.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+                let x1 = pts.iter().map(|p| p.0).fold(f32::MIN, f32::max);
+                let y0 = pts.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+                let y1 = pts.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+                clip_id += 1;
+                let _ = write!(
+                    out,
+                    r#"<clipPath id="clip{clip_id}"><rect x="{x0:.3}" y="{y0:.3}" width="{:.3}" height="{:.3}"/></clipPath><g clip-path="url(#clip{clip_id})">"#,
+                    x1 - x0,
+                    y1 - y0
+                );
+                st.clips += 1;
             }
             Op::Transform(m) => st.ctm = mul(&st.ctm, m),
             Op::Fill(c) => st.fill = c.approx_hex(),
@@ -127,6 +153,7 @@ pub fn write_svg(page: &Page) -> String {
             }
         }
     }
+    out.push_str(&"</g>".repeat(st.clips + stack.iter().map(|s: &State| s.clips).sum::<usize>()));
     out.push_str("</svg>");
     out
 }
