@@ -1,0 +1,29 @@
+[package]
+name = "wedding_invitation"
+version = "0.1.0"
+edition = "2021"
+description = "結婚式招待状の印刷入稿用 PDF (CMYK) を生成する WebAssembly アプリ"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pdf-writer = "0.15"
+subsetter = "0.2"
+ttf-parser = "0.25"
+miniz_oxide = "0.8"
+crc32fast = "1.4"
+encoding_rs = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "=0.2.129"
+
+[dev-dependencies]
+lopdf = "0.36"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

@@ -5,12 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>結婚式招待状メーカー</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>💌</text></svg>">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preload" href="pkg/wedding_invitation_bg.wasm" as="fetch" type="application/wasm" crossorigin>
 </head>
 <body>
+<div class="boot" id="boot">読み込み中…</div>
+
 <header class="site-header">
   <h1>結婚式招待状メーカー</h1>
-  <p>ゲスト情報とデザインを入れるだけで、印刷所にそのまま入稿できる CMYK の PDF を作成します。</p>
+  <p>ゲスト情報とデザインを入れるだけで、印刷所にそのまま入稿できる CMYK の PDF を作成します。入力した内容はこのブラウザの外には送信されません。</p>
 </header>
 
 <main class="layout">
@@ -18,20 +21,7 @@
 
     <section class="panel">
       <h2><span class="step">1</span>デザイン</h2>
-      <div class="designs">
-        {% for d in designs %}
-        <label class="design">
-          <input type="radio" name="design" value="{{ d.key }}" {% if d.key == default_design %}checked{% endif %}>
-          <span class="design-body">
-            <span class="swatches">
-              {% for color in d.swatches %}<span style="background: {{ color }}"></span>{% endfor %}
-            </span>
-            <strong>{{ d.name }}</strong>
-            <small>{{ d.description }}</small>
-          </span>
-        </label>
-        {% endfor %}
-      </div>
+      <div class="designs" id="designs"></div>
     </section>
 
     <section class="panel">
@@ -62,7 +52,7 @@
       <div class="toolbar">
         <button type="button" id="add-guest">＋ ゲストを追加</button>
         <label class="button-like">CSV を読み込む<input type="file" id="csv" accept=".csv,text/csv" hidden></label>
-        <a href="/api/guests/sample.csv">CSV のひな形</a>
+        <a href="#" id="sample-csv">CSV のひな形</a>
         <span class="count" id="guest-count"></span>
       </div>
       <div class="table-wrap">
@@ -103,16 +93,11 @@
       </div>
       <select id="preview-guest" aria-label="プレビューするゲスト"></select>
     </div>
-    <div class="frame">
-      <img id="preview-image" alt="プレビュー">
-      <div class="loading" id="loading">更新中…</div>
-    </div>
+    <div class="frame" id="preview" aria-label="プレビュー"></div>
     <p class="note">プレビューは画面表示用です。画面の色は印刷結果と異なる場合があります。</p>
   </aside>
 </main>
 
-<script id="defaults" type="application/json">{{ default_event | tojson }}</script>
-<script>window.MAX_GUESTS = {{ max_guests }};</script>
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
