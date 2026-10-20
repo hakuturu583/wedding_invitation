@@ -350,11 +350,159 @@ fn modern_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
     c.rect(10.2 * MM, 8.0 * MM, 0.4 * MM, 26.0 * MM, false, true);
 }
 
+// ------------------------------------------------------------------ 睦月(一月)
+
+const BENI: Cmyk = Cmyk(0.0, 0.90, 0.70, 0.10);
+const BENI_LIGHT: Cmyk = Cmyk(0.0, 0.45, 0.25, 0.0);
+const PINE: Cmyk = Cmyk(0.75, 0.20, 0.75, 0.30);
+const BAMBOO: Cmyk = Cmyk(0.55, 0.10, 0.60, 0.15);
+const BRANCH: Cmyk = Cmyk(0.30, 0.55, 0.70, 0.45);
+
+/// 梅の花(丸い 5 枚の花びら)。petal が None なら白梅(紙白に金の輪郭).
+fn plum(c: &mut Canvas, x: f32, y: f32, r: f32, petal: Option<Cmyk>, rotation: f32) {
+    c.save();
+    c.translate(x, y);
+    c.rotate(rotation);
+    c.set_fill(petal.unwrap_or(Cmyk::PAPER));
+    c.set_stroke(CLASSIC_GOLD);
+    c.set_line_width(0.3);
+    for i in 0..5 {
+        let a = (i as f32 * 72.0 + 90.0).to_radians();
+        c.circle(r * 0.5 * a.cos(), r * 0.5 * a.sin(), r * 0.5, petal.is_none(), true);
+    }
+    // しべ
+    c.set_stroke(CLASSIC_GOLD);
+    c.set_fill(CLASSIC_GOLD);
+    c.set_line_width((r * 0.04).max(0.25));
+    for i in 0..8 {
+        let a = (i as f32 * 45.0 + 22.5).to_radians();
+        c.line(0.0, 0.0, r * 0.42 * a.cos(), r * 0.42 * a.sin());
+        c.circle(r * 0.45 * a.cos(), r * 0.45 * a.sin(), r * 0.05, false, true);
+    }
+    c.set_fill(if petal.is_some() { CLASSIC_GOLD } else { BENI });
+    c.circle(0.0, 0.0, r * 0.12, false, true);
+    c.restore();
+}
+
+fn plum_bud(c: &mut Canvas, x: f32, y: f32, r: f32, color: Cmyk) {
+    c.set_fill(color);
+    c.circle(x, y, r, false, true);
+}
+
+/// 松葉を扇状に広げた「松」. angle は扇の中心の向き.
+fn pine(c: &mut Canvas, x: f32, y: f32, r: f32, angle: f32) {
+    c.save();
+    c.translate(x, y);
+    c.set_stroke(PINE);
+    c.set_line_width(0.5);
+    for i in 0..13 {
+        let a = (angle - 72.0 + i as f32 * 12.0).to_radians();
+        c.line(0.0, 0.0, r * a.cos(), r * a.sin());
+    }
+    c.set_fill(BRANCH);
+    c.circle(0.0, 0.0, r * 0.09, false, true);
+    c.restore();
+}
+
+/// 紅白・金の三本の水引を波打たせて横に渡す.
+fn mizuhiki(c: &mut Canvas, y: f32, x0: f32, x1: f32) {
+    let period = 24.0 * MM;
+    let amp = 1.4 * MM;
+    for (offset, color) in [(-1.6, BENI), (0.0, CLASSIC_GOLD), (1.6, BENI)] {
+        c.set_stroke(color);
+        c.set_line_width(1.1);
+        let mut p = Path::new();
+        let mut x = x0;
+        let base = y + offset;
+        p.move_to(x, base);
+        while x < x1 {
+            let half = period / 2.0;
+            p.curve_to(x + half * 0.36, base + amp, x + half * 0.64, base + amp, x + half, base);
+            p.curve_to(
+                x + half * 1.36,
+                base - amp,
+                x + half * 1.64,
+                base - amp,
+                x + period,
+                base,
+            );
+            x += period;
+        }
+        c.draw_path(p, true, false);
+    }
+}
+
+fn mutsuki_card(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32) {
+    fill_background(c, d, w, h, bleed);
+    c.set_stroke(CLASSIC_GOLD);
+    c.set_line_width(0.4);
+    c.rect(5.0 * MM, 5.0 * MM, w - 10.0 * MM, h - 10.0 * MM, true, false);
+    mizuhiki(c, 9.0 * MM, -bleed, w + bleed);
+
+    // 左上: 紅白の梅の枝
+    let top = h / MM;
+    c.set_stroke(BRANCH);
+    c.set_line_width(1.3);
+    let mut p = Path::new();
+    p.move_to(-3.0 * MM, (top - 27.0) * MM).curve_to(
+        5.0 * MM,
+        (top - 20.0) * MM,
+        11.0 * MM,
+        (top - 10.0) * MM,
+        27.0 * MM,
+        (top - 3.0) * MM,
+    );
+    c.draw_path(p, true, false);
+    c.set_line_width(0.8);
+    let mut p = Path::new();
+    p.move_to(6.0 * MM, (top - 17.0) * MM).curve_to(
+        3.5 * MM,
+        (top - 12.0) * MM,
+        3.0 * MM,
+        (top - 9.0) * MM,
+        3.5 * MM,
+        (top - 5.0) * MM,
+    );
+    c.draw_path(p, true, false);
+    plum(c, 4.0 * MM, (top - 21.0) * MM, 3.4 * MM, Some(BENI), 10.0);
+    plum(c, 10.0 * MM, (top - 13.0) * MM, 2.8 * MM, None, 40.0);
+    plum(c, 18.0 * MM, (top - 7.5) * MM, 3.0 * MM, Some(BENI), 70.0);
+    plum(c, 3.5 * MM, (top - 7.0) * MM, 2.2 * MM, None, 20.0);
+    plum_bud(c, 25.0 * MM, (top - 4.0) * MM, 1.0 * MM, BENI_LIGHT);
+    plum_bud(c, 14.0 * MM, (top - 11.5) * MM, 0.8 * MM, BENI);
+    plum_bud(c, 3.6 * MM, (top - 4.0) * MM, 0.8 * MM, BENI);
+
+    // 右下: 松と笹
+    let right = w / MM;
+    c.set_fill(BAMBOO);
+    for angle in [118.0, 142.0, 165.0] {
+        c.save();
+        c.translate((right - 22.0) * MM, 7.0 * MM);
+        c.rotate(angle);
+        leaf(c, 10.0 * MM, 1.6 * MM);
+        c.restore();
+    }
+    pine(c, (right - 12.0) * MM, 10.0 * MM, 6.5 * MM, 95.0);
+    pine(c, (right - 5.0) * MM, 15.0 * MM, 4.6 * MM, 110.0);
+    pine(c, (right - 19.0) * MM, 5.0 * MM, 5.0 * MM, 80.0);
+
+    // 左下: 水引に添える梅
+    plum(c, 10.0 * MM, 10.5 * MM, 3.0 * MM, Some(BENI), 0.0);
+    plum(c, 16.0 * MM, 7.0 * MM, 2.3 * MM, None, 30.0);
+}
+
+fn mutsuki_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
+    mizuhiki(c, 10.0 * MM, 6.0 * MM, 40.0 * MM);
+    plum(c, 10.0 * MM, 13.0 * MM, 3.0 * MM, Some(BENI), 0.0);
+    plum(c, 16.0 * MM, 10.0 * MM, 2.3 * MM, None, 30.0);
+    plum_bud(c, 20.0 * MM, 14.0 * MM, 0.8 * MM, BENI);
+}
+
 // ------------------------------------------------------------------ 一覧
 
 pub const DEFAULT_DESIGN: &str = "classic";
 
-pub static DESIGNS: [Design; 4] = [
+pub static DESIGNS: [Design; 5] = [
     Design {
         key: "classic",
         name: "クラシック",
@@ -411,6 +559,20 @@ pub static DESIGNS: [Design; 4] = [
         title_on_band: true,
         bottom_margin: 15.0 * MM,
     },
+    Design {
+        key: "mutsuki",
+        name: "睦月(一月)",
+        description: "紅白の梅と松、金の水引をあしらったお正月らしい和のデザイン",
+        background: Some(Cmyk(0.0, 0.04, 0.12, 0.0)),
+        accent: BENI,
+        sub: CLASSIC_GOLD,
+        text: Cmyk(0.0, 0.20, 0.30, 0.85),
+        title: "Wedding Invitation",
+        draw_card: mutsuki_card,
+        draw_envelope: mutsuki_envelope,
+        title_on_band: false,
+        bottom_margin: 17.0 * MM,
+    },
 ];
 
 pub fn find(key: &str) -> Option<&'static Design> {
@@ -428,11 +590,21 @@ mod tests {
     #[test]
     fn total_ink_is_within_limit() {
         for d in &DESIGNS {
-            for col in
-                d.colors()
-                    .into_iter()
-                    .chain([LEAF, LEAF_LIGHT, STEM, BERRY, SAKURA, SAKURA_CENTER, NAVY, MODERN_GOLD])
-            {
+            for col in d.colors().into_iter().chain([
+                LEAF,
+                LEAF_LIGHT,
+                STEM,
+                BERRY,
+                SAKURA,
+                SAKURA_CENTER,
+                NAVY,
+                MODERN_GOLD,
+                BENI,
+                BENI_LIGHT,
+                PINE,
+                BAMBOO,
+                BRANCH,
+            ]) {
                 assert!(col.total_ink() <= 300.0, "{} {:?}", d.key, col);
             }
         }
