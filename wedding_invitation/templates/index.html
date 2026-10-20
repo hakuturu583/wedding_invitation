@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>結婚式招待状メーカー</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>💌</text></svg>">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="site-header">
+  <h1>結婚式招待状メーカー</h1>
+  <p>ゲスト情報とデザインを入れるだけで、印刷所にそのまま入稿できる CMYK の PDF を作成します。</p>
+</header>
+
+<main class="layout">
+  <form id="form" class="editor" autocomplete="off" onsubmit="return false">
+
+    <section class="panel">
+      <h2><span class="step">1</span>デザイン</h2>
+      <div class="designs">
+        {% for d in designs %}
+        <label class="design">
+          <input type="radio" name="design" value="{{ d.key }}" {% if d.key == default_design %}checked{% endif %}>
+          <span class="design-body">
+            <span class="swatches">
+              {% for color in d.swatches %}<span style="background: {{ color }}"></span>{% endfor %}
+            </span>
+            <strong>{{ d.name }}</strong>
+            <small>{{ d.description }}</small>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">2</span>挙式・披露宴の情報</h2>
+      <div class="grid">
+        <label>新郎のお名前<input name="groom_name"></label>
+        <label>新婦のお名前<input name="bride_name"></label>
+        <label>挙式日<input type="date" name="date"></label>
+        <label>返信期日<input type="date" name="rsvp_deadline"></label>
+        <label>受付開始<input type="time" name="reception_open_time"></label>
+        <label>挙式<input type="time" name="ceremony_time"></label>
+        <label>披露宴<input type="time" name="party_time"></label>
+        <label>差出日の表記<input name="date_line" placeholder="空欄なら「〇年〇月吉日」を自動表示"></label>
+        <label class="wide">会場名<input name="venue_name"></label>
+        <label class="wide">会場住所<input name="venue_address"></label>
+        <label>会場電話番号<input name="venue_tel"></label>
+        <label class="wide">本文
+          <textarea name="message" rows="9"></textarea>
+          <small class="hint">「{時候}」は挙式日の約2か月前(発送時期)の時候の挨拶に置き換わります。招待状では句読点を使わないのが慣例です。</small>
+        </label>
+        <label>差出人の郵便番号<input name="sender_postal"></label>
+        <label class="wide">差出人の住所(封筒裏面)<input name="sender_address"></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">3</span>ゲスト</h2>
+      <div class="toolbar">
+        <button type="button" id="add-guest">＋ ゲストを追加</button>
+        <label class="button-like">CSV を読み込む<input type="file" id="csv" accept=".csv,text/csv" hidden></label>
+        <a href="/api/guests/sample.csv">CSV のひな形</a>
+        <span class="count" id="guest-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="guests">
+          <thead>
+            <tr><th>氏名<small>姓と名の間にスペース</small></th><th>郵便番号</th><th>住所1</th><th>住所2<small>建物名など</small></th><th>連名<small>名のみ可</small></th><th>敬称</th><th></th></tr>
+          </thead>
+          <tbody id="guest-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">4</span>入稿データを出力</h2>
+      <div class="options">
+        <label><input type="checkbox" name="crop_marks" checked> トンボ(トリムマーク)を付ける</label>
+        <label><input type="checkbox" name="envelope_back" checked> 封筒の裏面(差出人)を付ける</label>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" data-generate="zip">まとめてダウンロード (ZIP)</button>
+        <button type="button" data-generate="card">招待状カード PDF</button>
+        <button type="button" data-generate="envelope">封筒 宛名 PDF</button>
+      </div>
+      <p class="error" id="error" role="alert"></p>
+      <dl class="spec">
+        <dt>招待状カード</dt><dd>105×148mm(A6)・塗り足し各辺3mm・日本式トンボ・ゲスト1名につき1ページ</dd>
+        <dt>封筒</dt><dd>洋形2号 114×162mm・縦書き宛名・ゲスト1名につき1ページ(裏面は共通1ページ)</dd>
+        <dt>色・フォント</dt><dd>すべて CMYK(RGB・透明効果なし)・フォント埋め込み済み</dd>
+      </dl>
+    </section>
+  </form>
+
+  <aside class="preview">
+    <div class="preview-head">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-doc="card">招待状</button>
+        <button type="button" class="tab" data-doc="envelope">封筒</button>
+      </div>
+      <select id="preview-guest" aria-label="プレビューするゲスト"></select>
+    </div>
+    <div class="frame">
+      <img id="preview-image" alt="プレビュー">
+      <div class="loading" id="loading">更新中…</div>
+    </div>
+    <p class="note">プレビューは画面表示用です。画面の色は印刷結果と異なる場合があります。</p>
+  </aside>
+</main>
+
+<script id="defaults" type="application/json">{{ default_event | tojson }}</script>
+<script>window.MAX_GUESTS = {{ max_guests }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
