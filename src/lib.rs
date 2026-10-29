@@ -10,6 +10,7 @@ pub mod designs;
 pub mod fonts;
 pub mod layout;
 pub mod model;
+pub mod music;
 pub mod pdf;
 pub mod photos;
 pub mod roster;
@@ -276,4 +277,44 @@ pub fn template_xlsx() -> Vec<u8> {
 pub fn import_xlsx(data: &[u8]) -> Result<String, JsError> {
     let imported = xlsx::read_workbook(data).map_err(js_err)?;
     Ok(serde_json::to_string(&imported).unwrap_or_default())
+}
+
+// ------------------------------------------------------------------ 楽曲管理
+
+/// 楽曲管理の初期データ(結婚式の主なシーンを選定中で並べた JSON).
+#[wasm_bindgen(js_name = musicDefaultJson)]
+pub fn music_default_json() -> String {
+    music::to_json(&music::MusicList::default())
+}
+
+/// 楽曲管理の JSON を読み、整えた {list, warnings} を返す.
+#[wasm_bindgen(js_name = musicNormalize)]
+pub fn music_normalize(text: &str) -> Result<String, JsError> {
+    let n = music::normalize(text).map_err(js_err)?;
+    Ok(serde_json::to_string(&n).unwrap_or_default())
+}
+
+/// 楽曲一覧を保存用の JSON(整形済み)にする.
+#[wasm_bindgen(js_name = musicToJson)]
+pub fn music_to_json(list_json: &str) -> Result<String, JsError> {
+    let n = music::normalize(list_json).map_err(js_err)?;
+    Ok(music::to_json(&n.list))
+}
+
+/// 集計(状況ごと・発注先ごとの件数など)の JSON.
+#[wasm_bindgen(js_name = musicSummary)]
+pub fn music_summary(list_json: &str) -> Result<String, JsError> {
+    let n = music::normalize(list_json).map_err(js_err)?;
+    Ok(serde_json::to_string(&music::summary(&n.list)).unwrap_or_default())
+}
+
+/// 発注状況の一覧(進む順)と上限.
+#[wasm_bindgen(js_name = musicConfigJson)]
+pub fn music_config_json() -> String {
+    serde_json::json!({
+        "statuses": music::STATUSES,
+        "max_songs": music::MAX_SONGS,
+        "max_candidates": music::MAX_CANDIDATES,
+    })
+    .to_string()
 }
