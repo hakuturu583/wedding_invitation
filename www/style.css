@@ -19,8 +19,18 @@ body {
   line-height: 1.6;
 }
 
+.site-nav {
+  display: flex; justify-content: center; gap: 4px; padding: 14px 16px 0; flex-wrap: wrap;
+}
+.site-nav a {
+  color: var(--muted); text-decoration: none; font-size: 0.88rem;
+  padding: 6px 14px; border-radius: 999px; border: 1px solid transparent;
+}
+.site-nav a:hover { border-color: var(--line); }
+.site-nav a[aria-current="page"] { color: var(--accent-ink); background: var(--accent); }
+
 .site-header {
-  padding: 28px 24px 8px;
+  padding: 18px 24px 8px;
   text-align: center;
 }
 .site-header h1 { margin: 0; font-size: 1.7rem; letter-spacing: 0.08em; }
@@ -212,3 +222,59 @@ button.link { border: none; padding: 4px 6px; color: var(--muted); text-decorati
 .shape { display: inline-block; border: 1.5px solid currentColor; border-radius: 2px; }
 .shape.portrait { width: 12px; height: 17px; }
 .shape.landscape { width: 17px; height: 12px; }
+
+/* ------------------------------------------------------------ 楽曲管理 */
+.music { max-width: 1180px; margin: 0 auto; padding: 16px 24px 48px; }
+.music .toolbar { margin-bottom: 0; }
+.summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; }
+.progress-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.progress-head .big { font-size: 2rem; letter-spacing: 0.02em; }
+.progress-head .of { color: var(--muted); }
+.stack { display: flex; height: 26px; border-radius: 6px; overflow: hidden; background: #f1ece4; }
+.stack span { display: block; height: 100%; min-width: 0; transition: width 0.3s; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 0.85rem; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.legend b { font-weight: normal; color: var(--muted); }
+.checks { margin: 14px 0 0; font-size: 0.85rem; display: grid; gap: 6px; }
+.checks dt { color: var(--muted); }
+.checks dd { margin: 0; }
+.vendors { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 0.85rem; }
+.vendors .row { display: flex; justify-content: space-between; gap: 8px; }
+.vendors .bar { height: 8px; border-radius: 4px; background: #f1ece4; overflow: hidden; margin-top: 3px; }
+.vendors .bar span { display: block; height: 100%; background: var(--accent); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.filters button { padding: 4px 12px; border-radius: 999px; font-size: 0.82rem; border-color: var(--line); color: var(--ink); }
+.filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.songs-wrap { overflow-x: auto; }
+table.songs { width: 100%; border-collapse: collapse; min-width: 760px; }
+.songs th { text-align: left; font-size: 0.8rem; color: var(--muted); font-weight: normal; padding: 6px; border-bottom: 1px solid var(--line); }
+.songs td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.songs td.num { color: var(--muted); width: 2.5em; padding-top: 14px; }
+.songs td.scene { width: 18%; }
+.songs td.titles { width: 38%; }
+.songs td.status { width: 13%; }
+.songs td.vendor { width: 18%; }
+.songs td.ops { white-space: nowrap; width: 1%; }
+.songs td.ops button { padding: 4px 8px; }
+.songs tr.hidden { display: none; }
+.status-select { border-width: 2px; font-weight: bold; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line);
+  border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 0.85rem; background: #faf8f4;
+}
+.chip button { border: none; padding: 2px 6px; font-size: 0.75rem; border-radius: 999px; }
+.chip .pick { color: var(--accent); }
+.chip .pick:hover { background: var(--accent); color: var(--accent-ink); }
+.titles .hint { margin-top: 4px; display: block; }
+@media (max-width: 860px) {
+  .summary { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .music { padding: 12px 16px 40px; }
+}
+.sub-title { font-size: 0.9rem; margin: 0 0 10px; color: var(--muted); font-weight: normal; }
+.add-row { display: flex; gap: 6px; }
+.add-row button { padding: 4px 10px; flex: none; }
+.music .error:empty { display: none; }

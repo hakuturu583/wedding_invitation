@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>楽曲管理</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎵</text></svg>">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preload" href="pkg/wedding_invitation_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+</head>
+<body>
+<div class="boot" id="boot">読み込み中…</div>
+
+<nav class="site-nav" aria-label="ページ">
+  <a href="index.html">招待状・案内図</a>
+  <a href="music.html" aria-current="page">楽曲管理</a>
+</nav>
+
+<header class="site-header">
+  <h1>楽曲管理</h1>
+  <p>披露宴で使う曲を、シーンごとに選定から発注・納品まで管理します。内容は JSON で保存・読み込みでき、このブラウザにも自動で保存されます。</p>
+</header>
+
+<main class="music">
+  <section class="panel">
+    <div class="toolbar">
+      <label class="button-like primary-like">JSON を読み込む<input type="file" id="json-file" accept=".json,application/json" hidden></label>
+      <button type="button" id="export-json">JSON を書き出す</button>
+      <button type="button" id="add-song">＋ シーンを追加</button>
+      <button type="button" id="reset" class="link">初期状態に戻す</button>
+    </div>
+    <p class="notice" id="notice" role="status"></p>
+    <p class="error" id="error" role="alert"></p>
+  </section>
+
+  <section class="panel">
+    <h2>進み具合</h2>
+    <div class="summary">
+      <div>
+        <div class="progress-head">
+          <span class="big" id="done-count">0</span>
+          <span class="of" id="done-of">/ 0 シーン 納品済み</span>
+        </div>
+        <div class="stack" id="stack" role="img"></div>
+        <ul class="legend" id="legend"></ul>
+        <dl class="checks">
+          <dt>まだ曲が決まっていないシーン</dt><dd id="undecided">—</dd>
+          <dt>発注先が未入力のシーン(決定以降)</dt><dd id="missing-vendor">—</dd>
+          <dt>楽曲名が未入力のシーン(決定以降)</dt><dd id="missing-title">—</dd>
+        </dl>
+      </div>
+      <div>
+        <h3 class="sub-title">発注先ごと</h3>
+        <ul class="vendors" id="vendors"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>シーンと楽曲</h2>
+    <div class="filters" id="filters" role="group" aria-label="発注状況で絞り込む"></div>
+    <div class="songs-wrap">
+      <table class="songs">
+        <thead>
+          <tr><th>#</th><th>使うシーン</th><th>楽曲名<small>(選定中は候補を複数)</small></th><th>発注状況</th><th>発注先</th><th></th></tr>
+        </thead>
+        <tbody id="songs"></tbody>
+      </table>
+    </div>
+    <datalist id="vendor-list">
+      <option value="会場"></option>
+      <option value="ISUM 申請(持ち込み)"></option>
+      <option value="音響業者"></option>
+      <option value="生演奏"></option>
+      <option value="自作・購入済み音源"></option>
+    </datalist>
+  </section>
+</main>
+
+<script type="module" src="music.js"></script>
+</body>
+</html>
