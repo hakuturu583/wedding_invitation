@@ -339,3 +339,21 @@ fn access_preview_and_zip() {
     assert!(build_preview(&no_guests, Doc::Access, 0).is_ok());
     assert!(build_preview(&no_guests, Doc::Card, 0).is_err());
 }
+
+#[test]
+fn access_map_landscape() {
+    let (w, h) = POSTCARD_SIZE;
+    let off = BLEED + MARK_AREA;
+    for (map, steps, pages) in [(true, 4, 2), (false, 4, 1), (true, 0, 1), (false, 0, 1)] {
+        let mut o = access_order(map, steps);
+        o.access.orientation = "landscape".into();
+        let pdf = build_pdf(&o, Doc::Access).unwrap();
+        let doc = assert_print_ready(&pdf);
+        let ids = doc.get_pages();
+        assert_eq!(ids.len(), pages, "{map} {steps}");
+        for id in ids.values() {
+            let page = doc.get_dictionary(*id).unwrap();
+            approx(&rect(&doc, page, b"TrimBox"), &[off, off, off + h, off + w]);
+        }
+    }
+}

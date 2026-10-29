@@ -2,6 +2,7 @@
 //!
 //! 上から、タイトル・会場 → 地図 → 交通手段ごとの行き方(アイコン付き)→ 最寄り駅からの道順写真 → 補足。
 //! 写真の枚数や行の数に合わせて、地図と写真の大きさを自動で決める。
+//! 横向き(148×100mm)では見出しを詰め、地図と交通手段を左右に並べる。
 
 use crate::canvas::{Canvas, Cmyk, Page, Path, MM};
 use crate::designs::{self, divider, fill_background, Design};
@@ -11,8 +12,18 @@ use crate::model::{Access, Event, Options, ACCESS_MODES};
 use crate::photos;
 use crate::typeset::wrap;
 
-/// 郵便はがき
+/// 郵便はがき(縦)
 pub const POSTCARD_SIZE: (f32, f32) = (100.0 * MM, 148.0 * MM);
+
+/// 仕上がりサイズ(横向きなら幅と高さを入れ替える).
+pub fn postcard_size(access: &Access) -> (f32, f32) {
+    let (w, h) = POSTCARD_SIZE;
+    if access.is_landscape() {
+        (h, w)
+    } else {
+        (w, h)
+    }
+}
 
 const MINCHO: FontId = FontId::Mincho;
 const MARGIN: f32 = 8.0 * MM;
@@ -253,26 +264,39 @@ fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
 }
 
 /// 高さ avail に収まり、写真がいちばん大きくなる列数と縮小率.
-fn choose_grid(access: &Access, content_w: f32, avail: f32) -> (Grid, f32) {
+/// どの並べ方でも収まらなければ、いちばん低くなる並べ方を選ぶ。
+fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> (Grid, f32) {
+    const MIN_SCALE: f32 = 0.3;
     let n = access.steps.len().max(1);
-    let mut best = (Grid { cols: n.min(3) }, 0.3, 0.0);
-    for cols in 1..=n.min(3) {
+    let mut fitting: Option<(Grid, f32, f32)> = None; // (並べ方, 縮小率, 写真の幅)
+    let mut lowest: Option<(Grid, f32)> = None; // (並べ方, 最小の高さ)
+    for cols in 1..=n.min(max_cols) {
         let grid = Grid { cols };
         let mut s: f32 = 1.0;
-        while s > 0.3 && steps_height(access, content_w, &grid, s) > avail {
+        while s > MIN_SCALE && steps_height(access, content_w, &grid, s) > avail {
             s -= 0.02;
         }
-        let pw = step_box(content_w, &grid, s).0;
-        if pw > best.2 + 0.5 * MM {
-            best = (grid, s, pw);
+        let height = steps_height(access, content_w, &grid, s);
+        if height <= avail {
+            let pw = step_box(content_w, &grid, s).0;
+            if fitting.is_none_or(|(_, _, best)| pw > best + 0.5 * MM) {
+                fitting = Some((grid, s, pw));
+            }
+        } else if lowest.is_none_or(|(_, h)| height < h) {
+            lowest = Some((grid, height));
         }
     }
-    (best.0, best.1)
+    match (fitting, lowest) {
+        (Some((grid, s, _)), _) => (grid, s),
+        (None, Some((grid, _))) => (grid, MIN_SCALE),
+        (None, None) => (Grid { cols: 1 }, 1.0),
+    }
 }
 
-/// 背景・枠・タイトル・会場。本文を始める y を返す.
-fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design, subtitle: &str) -> f32 {
-    let (w, h) = POSTCARD_SIZE;
+/// 背景・枠・タイトル・会場。本文を始める y を返す(横向きは見出しを詰める).
+fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f32 {
+    let (w, h) = postcard_size(access);
+    let compact = access.is_landscape();
     let content_w = w - 2.0 * MARGIN;
     c.save();
     c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
@@ -282,25 +306,22 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design, subti
     c.rect(4.5 * MM, 4.5 * MM, w - 9.0 * MM, h - 9.0 * MM, true, false);
     c.restore();
 
+    let k = if compact { 0.8 } else { 1.0 };
     c.set_fill(d.accent);
-    c.set_font(FontId::Script, 22.0);
-    c.draw_centred(w / 2.0, h - 15.5 * MM, "Access");
+    c.set_font(FontId::Script, 22.0 * k);
+    c.draw_centred(w / 2.0, h - 15.5 * MM * k, "Access");
     c.set_fill(d.text);
-    c.set_font(MINCHO, 8.0);
-    let title = if subtitle.is_empty() {
-        access.title.as_str()
-    } else {
-        subtitle
-    };
-    c.draw_centred(w / 2.0, h - 21.0 * MM, title);
-    divider(c, w / 2.0, h - 24.0 * MM, 24.0 * MM, d.accent);
+    c.set_font(MINCHO, 8.0 * k.max(0.9));
+    c.draw_centred(w / 2.0, h - 21.0 * MM * k, &access.title);
+    divider(c, w / 2.0, h - 24.0 * MM * k, 24.0 * MM, d.accent);
     c.set_fill(d.text);
-    let mut y = h - 26.5 * MM;
+    let mut y = h - 26.5 * MM * k;
+    let name_size = 9.0 * k.max(0.92);
     if !event.venue_name.is_empty() {
-        c.set_font(MINCHO, 9.0);
-        for line in wrap(&event.venue_name, MINCHO, 9.0, content_w) {
-            c.draw_centred(w / 2.0, y - 9.0 * 0.9, &line);
-            y -= 9.0 * 1.45;
+        c.set_font(MINCHO, name_size);
+        for line in wrap(&event.venue_name, MINCHO, name_size, content_w) {
+            c.draw_centred(w / 2.0, y - name_size * 0.9, &line);
+            y -= name_size * 1.45;
         }
     }
     let mut info = event.venue_address.clone();
@@ -314,17 +335,18 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design, subti
             y -= 6.8 * 1.5;
         }
     }
-    y - 2.5 * MM
+    y - 2.5 * MM * k
 }
 
-fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], d: &Design, mut y: f32) -> f32 {
+/// 交通手段を x から幅 col_w で描く.
+fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], d: &Design, x0: f32, mut y: f32) -> f32 {
     for (mode, lines) in routes {
         let row_h = route_row_height(lines.len());
         let icon_cy = y - row_h / 2.0;
-        draw_icon(c, mode, MARGIN + ICON / 2.0, icon_cy, ICON, d.accent, Cmyk::PAPER);
+        draw_icon(c, mode, x0 + ICON / 2.0, icon_cy, ICON, d.accent, Cmyk::PAPER);
         let lh = ROUTE_SIZE * ROUTE_LEADING;
         let text_top = icon_cy + lines.len() as f32 * lh / 2.0;
-        let x = MARGIN + ICON + 1.5 * MM;
+        let x = x0 + ICON + 1.5 * MM;
         let base = |i: usize| text_top - lh * (i as f32 + 1.0) + (lh - ROUTE_SIZE) / 2.0 + ROUTE_SIZE * 0.12;
         c.set_font(MINCHO, ROUTE_SIZE);
         c.set_fill(d.accent);
@@ -338,17 +360,17 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], d: &Design, mut y
     y
 }
 
-fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, mut y: f32, grid: &Grid, s: f32) {
-    let (w, _) = POSTCARD_SIZE;
-    let content_w = w - 2.0 * MARGIN;
+/// 道順の写真を x0 から幅 content_w の中に並べる.
+#[allow(clippy::too_many_arguments)]
+fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f32, mut y: f32, grid: &Grid, s: f32) {
     c.set_fill(d.accent);
     c.set_font(MINCHO, 7.2);
     let heading = "最寄り駅からの道順";
     let hw = fonts::text_width(MINCHO, heading, 7.2);
-    c.draw_string(MARGIN, y - 7.2, heading);
+    c.draw_string(x0, y - 7.2, heading);
     c.set_stroke(d.sub);
     c.set_line_width(0.35);
-    c.line(MARGIN + hw + 2.0 * MM, y - 7.2 * 0.65, w - MARGIN, y - 7.2 * 0.65);
+    c.line(x0 + hw + 2.0 * MM, y - 7.2 * 0.65, x0 + content_w, y - 7.2 * 0.65);
     y -= STEPS_HEADER;
 
     let (pw, ph) = step_box(content_w, grid, s);
@@ -356,11 +378,11 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, mut y: f32, grid: &Gr
     let mut number = 0;
     for row in access.steps.chunks(grid.cols) {
         let row_w = pw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
-        let x0 = (w - row_w) / 2.0;
+        let left = x0 + (content_w - row_w) / 2.0;
         let mut caption_h: f32 = 0.0;
         for (i, step) in row.iter().enumerate() {
             number += 1;
-            let x = x0 + i as f32 * (pw + STEP_GAP_X);
+            let x = left + i as f32 * (pw + STEP_GAP_X);
             if !draw_cover(c, &step.photo, x, y - ph, pw, ph) {
                 c.set_fill(PLACEHOLDER);
                 c.rect(x, y - ph, pw, ph, false, true);
@@ -425,24 +447,39 @@ pub fn is_two_sided(access: &Access) -> bool {
     photos::has(&access.map_photo) && !access.steps.is_empty()
 }
 
-fn page(options: &Options, d: &Design, side: &str, draw: impl FnOnce(&mut Canvas)) -> Page {
-    let (w, h) = POSTCARD_SIZE;
+fn page(access: &Access, options: &Options, d: &Design, side: &str, draw: impl FnOnce(&mut Canvas)) -> Page {
+    let (w, h) = postcard_size(access);
     let mut c = bleed_page(w, h, options.crop_marks);
     draw(&mut c);
     if options.crop_marks {
         draw_crop_marks(&mut c, w, h, BLEED, MARK_AREA - 2.0 * MM);
         c.set_fill(Cmyk::BLACK);
         c.set_font(MINCHO, 5.0);
-        let slug = format!("案内図{side} {} ハガキ 100×148mm 塗り足し3mm CMYK", d.name);
+        let size = if access.is_landscape() {
+            "横 148×100mm"
+        } else {
+            "縦 100×148mm"
+        };
+        let slug = format!("案内図{side} {} ハガキ {size} 塗り足し3mm CMYK", d.name);
         c.draw_string(-BLEED - MARK_AREA + 1.0 * MM, -BLEED - MARK_AREA + 1.5 * MM, &slug);
     }
     c.finish()
 }
 
+fn draw_map(c: &mut Canvas, access: &Access, d: &Design, x: f32, y: f32, w: f32, h: f32) {
+    if let Some([ix, iy, iw, ih]) = draw_contain(c, &access.map_photo, x, y, w, h) {
+        c.set_stroke(d.sub);
+        c.set_line_width(0.4);
+        c.rect(ix, iy, iw, ih, true, false);
+    }
+}
+
 /// 案内図のページ(1 枚、または表裏 2 枚).
 pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
     let d = designs::get(design);
-    let (w, _) = POSTCARD_SIZE;
+    let (w, _) = postcard_size(access);
+    let landscape = access.is_landscape();
+    let max_cols = if landscape { 4 } else { 3 };
     let content_w = w - 2.0 * MARGIN;
     let has_map = photos::has(&access.map_photo);
     let two_sided = is_two_sided(access);
@@ -453,19 +490,54 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     };
     let note_h = note_lines.len() as f32 * NOTE_SIZE * 1.6;
     let bottom = MARGIN + if note_h > 0.0 { note_h + 2.0 * MM } else { 0.0 };
+    // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
+    //   地図あり: 左に地図、右に交通手段 / 地図なし: 左に交通手段、右に道順写真
+    let steps_on_front = !two_sided && !access.steps.is_empty();
+    let side_by_side = landscape && !access.routes.is_empty() && (has_map || steps_on_front);
+    const COL_GAP: f32 = 5.0 * MM;
+    let (left_w, route_x, route_w) = match (side_by_side, has_map) {
+        (true, true) => {
+            let map_w = content_w * 0.56;
+            (map_w, MARGIN + map_w + COL_GAP, content_w - map_w - COL_GAP)
+        }
+        (true, false) => {
+            let route_w = content_w * 0.42;
+            (route_w, MARGIN, route_w)
+        }
+        _ => (content_w, MARGIN, content_w),
+    };
     let routes: Vec<(&str, Vec<String>)> = access
         .routes
         .iter()
-        .map(|r| (r.mode.as_str(), route_lines(&r.text, content_w)))
+        .map(|r| (r.mode.as_str(), route_lines(&r.text, route_w)))
         .collect();
     let routes_h: f32 = routes.iter().map(|(_, l)| route_row_height(l.len())).sum();
 
-    let front = page(options, d, if two_sided { "(表)" } else { "" }, |c| {
-        let mut y = draw_header(c, event, access, d, "");
-        let with_steps = !two_sided && !access.steps.is_empty();
+    let front = page(access, options, d, if two_sided { "(表)" } else { "" }, |c| {
+        let mut y = draw_header(c, event, access, d);
+        if side_by_side {
+            let col_h = (y - bottom).clamp(0.0, MAX_MAP);
+            if has_map {
+                draw_map(c, access, d, MARGIN, y - col_h, left_w, col_h);
+                // 交通手段は地図の高さの中で上下の中央に置く
+                let offset = ((col_h - routes_h) / 2.0).max(0.0);
+                draw_routes(c, &routes, d, route_x, y - offset);
+            } else {
+                let steps_x = MARGIN + left_w + COL_GAP;
+                let steps_w = content_w - left_w - COL_GAP;
+                let (grid, s) = choose_grid(access, steps_w, col_h, 2);
+                let steps_h = steps_height(access, steps_w, &grid, s);
+                let offset = ((steps_h - routes_h) / 2.0).max(0.0);
+                draw_routes(c, &routes, d, route_x, y - offset);
+                draw_steps(c, access, d, steps_x, steps_w, y, &grid, s);
+            }
+            draw_note(c, &note_lines, d);
+            return;
+        }
+        let with_steps = steps_on_front;
         let sections = [has_map, !routes.is_empty(), with_steps].iter().filter(|b| **b).count() as f32;
         let rest = (y - bottom - routes_h - SECTION_GAP * (sections - 1.0).max(0.0)).max(0.0);
-        let (grid, s) = choose_grid(access, content_w, rest);
+        let (grid, s) = choose_grid(access, content_w, rest, max_cols);
         let steps_h = if with_steps {
             steps_height(access, content_w, &grid, s)
         } else {
@@ -477,30 +549,35 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             0.0
         };
         if has_map && map_h > 0.0 {
-            if let Some([ix, iy, iw, ih]) = draw_contain(c, &access.map_photo, MARGIN, y - map_h, content_w, map_h) {
-                c.set_stroke(d.sub);
-                c.set_line_width(0.4);
-                c.rect(ix, iy, iw, ih, true, false);
-            }
+            draw_map(c, access, d, MARGIN, y - map_h, content_w, map_h);
             y -= map_h + SECTION_GAP;
         }
         if !routes.is_empty() {
-            y = draw_routes(c, &routes, d, y) - SECTION_GAP;
+            y = draw_routes(c, &routes, d, MARGIN, y) - SECTION_GAP;
         }
         if with_steps {
-            draw_steps(c, access, d, y, &grid, s);
+            draw_steps(c, access, d, MARGIN, content_w, y, &grid, s);
         }
         draw_note(c, &note_lines, d);
     });
     if !two_sided {
         return vec![front];
     }
-    let back = page(options, d, "(裏)", |c| {
-        let y = draw_header(c, event, access, d, "");
-        let (grid, s) = choose_grid(access, content_w, y - MARGIN);
+    let back = page(access, options, d, "(裏)", |c| {
+        let y = draw_header(c, event, access, d);
+        let (grid, s) = choose_grid(access, content_w, y - MARGIN, max_cols);
         // 余白が残るときは上下の中央に寄せる
         let spare = (y - MARGIN - steps_height(access, content_w, &grid, s)).max(0.0);
-        draw_steps(c, access, d, y - (spare / 2.0).min(12.0 * MM), &grid, s);
+        draw_steps(
+            c,
+            access,
+            d,
+            MARGIN,
+            content_w,
+            y - (spare / 2.0).min(12.0 * MM),
+            &grid,
+            s,
+        );
     });
     vec![front, back]
 }

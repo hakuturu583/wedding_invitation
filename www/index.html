@@ -59,9 +59,20 @@
 
     <section class="panel access">
       <h2><span class="step">3</span>案内図(ハガキ)</h2>
-      <p class="lead">ハガキサイズ(100×148mm)の案内図を作ります。地図と道順の写真を両方入れると、表に地図と交通手段、裏に道順の写真を並べた表裏 2 ページになります。写真は CMYK に変換して入稿データに埋め込みます。</p>
+      <p class="lead">ハガキサイズの案内図を作ります(縦 100×148mm / 横 148×100mm)。地図と道順の写真を両方入れると、表に地図と交通手段、裏に道順の写真を並べた表裏 2 ページになります。写真は CMYK に変換して入稿データに埋め込みます。</p>
       <div class="grid">
         <label class="wide">見出し<input name="access_title" placeholder="ご案内図"></label>
+      </div>
+      <div class="orientation" role="radiogroup" aria-label="ハガキの向き">
+        <span class="orientation-label">向き</span>
+        <label class="orient">
+          <input type="radio" name="access_orientation" value="portrait" checked>
+          <span><i class="shape portrait"></i>縦 100×148mm</span>
+        </label>
+        <label class="orient">
+          <input type="radio" name="access_orientation" value="landscape">
+          <span><i class="shape landscape"></i>横 148×100mm</span>
+        </label>
       </div>
 
       <h3>地図</h3>
@@ -129,7 +140,7 @@
       <dl class="spec">
         <dt>招待状カード</dt><dd>105×148mm(A6)・塗り足し各辺3mm・日本式トンボ・ゲスト1名につき1ページ</dd>
         <dt>封筒</dt><dd>洋形2号 114×162mm・縦書き宛名・ゲスト1名につき1ページ(裏面は共通1ページ)</dd>
-        <dt>案内図</dt><dd>ハガキ 100×148mm・塗り足し各辺3mm・日本式トンボ・地図と道順写真があれば表裏2ページ</dd>
+        <dt>案内図</dt><dd>ハガキ 縦 100×148mm / 横 148×100mm・塗り足し各辺3mm・日本式トンボ・地図と道順写真があれば表裏2ページ</dd>
         <dt>色・フォント</dt><dd>すべて CMYK(RGB・透明効果なし。写真も CMYK に変換)・フォント埋め込み済み</dd>
       </dl>
     </section>

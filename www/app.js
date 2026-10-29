@@ -378,6 +378,7 @@ function access() {
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
+    orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
   };
 }
 
@@ -385,6 +386,8 @@ function fillAccess(a) {
   const value = { ...accessInfo.access, ...(a || {}) };
   form.elements.access_title.value = value.title || "";
   form.elements.access_note.value = value.note || "";
+  const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
+  form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
   setMapPhoto(value.map_photo);
   $("routes").innerHTML = "";
   (value.routes || []).forEach((r) => addRoute(r));

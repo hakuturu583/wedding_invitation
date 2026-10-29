@@ -68,6 +68,20 @@ fn main() {
             .unwrap();
         }
     }
+    // 横向きの案内図(地図と道順写真の両方 / 道順写真だけ)
+    for (name, with_map) in [("access_landscape", true), ("access_landscape_steps", false)] {
+        let mut access = access.clone();
+        access.orientation = "landscape".into();
+        if !with_map {
+            access.map_photo.clear();
+        }
+        let order = Order {
+            design: "classic".into(),
+            access,
+            ..Order::default()
+        };
+        std::fs::write(format!("{out}/{name}.pdf"), build_pdf(&order, Doc::Access).unwrap()).unwrap();
+    }
     std::fs::write(format!("{out}/template.xlsx"), wedding_invitation::xlsx::template()).unwrap();
     println!("{out} に書き出しました");
 }

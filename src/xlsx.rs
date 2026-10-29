@@ -13,7 +13,9 @@ use quick_xml::Reader;
 use serde::Serialize;
 
 use crate::designs;
-use crate::model::{Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, MAX_GUESTS, MAX_ROUTES};
+use crate::model::{
+    Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, LANDSCAPE, MAX_GUESTS, MAX_ROUTES, PORTRAIT,
+};
 use crate::roster::{self, ONEW_SHEET};
 use crate::zip;
 
@@ -27,6 +29,8 @@ enum Kind {
     Multiline,
     /// する/しない
     Flag,
+    /// 縦/横
+    Orientation,
     Design,
 }
 
@@ -37,6 +41,7 @@ enum Slot {
     Access(fn(&mut Access) -> &mut String),
     CropMarks,
     EnvelopeBack,
+    AccessOrientation,
 }
 
 struct SettingRow {
@@ -150,6 +155,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "差出人の裏面ページを付けるか",
     },
     SettingRow {
+        label: "案内図の向き",
+        kind: Kind::Orientation,
+        slot: Slot::AccessOrientation,
+        help: "ハガキを縦(100×148mm)にするか横(148×100mm)にするか",
+    },
+    SettingRow {
         label: "案内図のタイトル",
         kind: Kind::Text,
         slot: Slot::Access(|a| &mut a.title),
@@ -230,6 +241,7 @@ fn settings_value(order: &Order, row: &SettingRow) -> String {
         Slot::Access(f) => f(&mut order.access.clone()).clone(),
         Slot::CropMarks => (if order.options.crop_marks { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::EnvelopeBack => (if order.options.envelope_back { FLAG_ON } else { FLAG_OFF }).into(),
+        Slot::AccessOrientation => (if order.access.is_landscape() { "横" } else { "縦" }).into(),
     }
 }
 
@@ -263,6 +275,7 @@ fn settings_sheet(order: &Order) -> String {
                 format!("{}: {}", row.help, names.join(" / "))
             }
             Kind::Flag => format!("{}(「{FLAG_ON}」か「{FLAG_OFF}」)", row.help),
+            Kind::Orientation => format!("{}(「縦」か「横」)", row.help),
             _ => row.help.to_string(),
         };
         cell(&mut x, 2, r, S_HELP, &help);
@@ -270,6 +283,7 @@ fn settings_sheet(order: &Order) -> String {
         let list = match row.kind {
             Kind::Design => Some(designs::DESIGNS.iter().map(|d| d.name).collect::<Vec<_>>().join(",")),
             Kind::Flag => Some(format!("{FLAG_ON},{FLAG_OFF}")),
+            Kind::Orientation => Some("縦,横".to_string()),
             _ => None,
         };
         if let Some(list) = list {
@@ -798,6 +812,19 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         designs::DESIGNS[0].name
                     )),
                 },
+                Slot::AccessOrientation => {
+                    order.access.orientation = match text.trim() {
+                        "横" | "横向き" | "landscape" => LANDSCAPE.into(),
+                        "" | "縦" | "縦向き" | "portrait" => PORTRAIT.into(),
+                        other => {
+                            warnings.push(format!(
+                                "「{}」の値「{other}」は「縦」か「横」で入力してください",
+                                setting.label
+                            ));
+                            PORTRAIT.into()
+                        }
+                    };
+                }
                 Slot::CropMarks | Slot::EnvelopeBack => {
                     let value = if text.is_empty() { Some(true) } else { to_flag(&text) };
                     let value = value.unwrap_or_else(|| {
@@ -920,6 +947,7 @@ mod tests {
         Order {
             access: crate::model::Access {
                 note: "送迎バスあり\n10:00 発".into(),
+                orientation: LANDSCAPE.into(),
                 ..crate::model::Access::default()
             },
             design: "yuki".into(),
@@ -957,6 +985,7 @@ mod tests {
         );
         assert!(got.event.message.contains('\n'));
         assert_eq!(got.access.routes, order.access.routes, "交通手段も往復で残る");
+        assert!(got.access.is_landscape(), "案内図の向きも残る");
         assert_eq!(
             (got.access.title.as_str(), got.access.note.as_str()),
             ("ご案内図", "送迎バスあり\n10:00 発")

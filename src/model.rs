@@ -360,6 +360,9 @@ pub const ACCESS_MODES: [(&str, &str); 8] = [
     ("plane", "飛行機"),
 ];
 
+pub const PORTRAIT: &str = "portrait";
+pub const LANDSCAPE: &str = "landscape";
+
 pub const MAX_ROUTES: usize = 8;
 pub const MAX_STEPS: usize = 6;
 
@@ -392,6 +395,8 @@ pub struct Access {
     pub steps: Vec<RouteStep>,
     /// 補足(例: 送迎バスの時刻)
     pub note: String,
+    /// "portrait"(縦 100×148mm)または "landscape"(横 148×100mm)
+    pub orientation: String,
 }
 
 impl Default for Access {
@@ -419,6 +424,7 @@ impl Default for Access {
             ],
             steps: Vec::new(),
             note: String::new(),
+            orientation: PORTRAIT.into(),
         }
     }
 }
@@ -455,7 +461,17 @@ impl Access {
             routes,
             steps,
             note: clean(&self.note, MAX_MESSAGE_LEN),
+            orientation: if self.orientation == LANDSCAPE {
+                LANDSCAPE
+            } else {
+                PORTRAIT
+            }
+            .into(),
         }
+    }
+
+    pub fn is_landscape(&self) -> bool {
+        self.orientation == LANDSCAPE
     }
 
     pub fn is_empty(&self) -> bool {
