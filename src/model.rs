@@ -348,6 +348,121 @@ impl Default for Options {
     }
 }
 
+/// 案内図に載せる交通手段.
+pub const ACCESS_MODES: [(&str, &str); 8] = [
+    ("train", "電車"),
+    ("subway", "地下鉄"),
+    ("bus", "バス"),
+    ("taxi", "タクシー"),
+    ("car", "お車"),
+    ("parking", "駐車場"),
+    ("walk", "徒歩"),
+    ("plane", "飛行機"),
+];
+
+pub const MAX_ROUTES: usize = 8;
+pub const MAX_STEPS: usize = 6;
+
+/// 交通手段ごとの行き方(例: 電車「JR 大阪駅 中央口より徒歩 5 分」).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccessRoute {
+    /// ACCESS_MODES のキー
+    pub mode: String,
+    pub text: String,
+}
+
+/// 最寄り駅からの道順の 1 枚(写真と説明).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RouteStep {
+    /// photos に登録した写真の ID(空なら写真なし)
+    pub photo: String,
+    pub caption: String,
+}
+
+/// 案内図(ハガキ)の内容。会場名・住所・電話番号は Event のものを使う.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Access {
+    pub title: String,
+    /// 地図の画像(photos の ID)
+    pub map_photo: String,
+    pub routes: Vec<AccessRoute>,
+    pub steps: Vec<RouteStep>,
+    /// 補足(例: 送迎バスの時刻)
+    pub note: String,
+}
+
+impl Default for Access {
+    fn default() -> Self {
+        Access {
+            title: "ご案内図".into(),
+            map_photo: String::new(),
+            routes: vec![
+                AccessRoute {
+                    mode: "train".into(),
+                    text: "JR 東京駅 丸の内中央口より徒歩 5 分".into(),
+                },
+                AccessRoute {
+                    mode: "subway".into(),
+                    text: "地下鉄 大手町駅 D1 出口より徒歩 3 分".into(),
+                },
+                AccessRoute {
+                    mode: "taxi".into(),
+                    text: "東京駅 丸の内口のタクシー乗り場より約 5 分".into(),
+                },
+                AccessRoute {
+                    mode: "parking".into(),
+                    text: "ホテル地下駐車場 100 台(披露宴ご出席の方は 3 時間無料)".into(),
+                },
+            ],
+            steps: Vec::new(),
+            note: String::new(),
+        }
+    }
+}
+
+impl Access {
+    pub fn cleaned(self) -> Access {
+        let routes = self
+            .routes
+            .into_iter()
+            .map(|r| AccessRoute {
+                mode: if ACCESS_MODES.iter().any(|(k, _)| *k == r.mode) {
+                    r.mode
+                } else {
+                    "train".into()
+                },
+                text: clean(&r.text, MAX_LEN),
+            })
+            .filter(|r| !r.text.is_empty())
+            .take(MAX_ROUTES)
+            .collect();
+        let steps = self
+            .steps
+            .into_iter()
+            .map(|s| RouteStep {
+                photo: clean(&s.photo, 64),
+                caption: clean(&s.caption, MAX_LEN),
+            })
+            .filter(|s| !(s.photo.is_empty() && s.caption.is_empty()))
+            .take(MAX_STEPS)
+            .collect();
+        Access {
+            title: clean(&self.title, 40),
+            map_photo: clean(&self.map_photo, 64),
+            routes,
+            steps,
+            note: clean(&self.note, MAX_MESSAGE_LEN),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map_photo.is_empty() && self.routes.is_empty() && self.steps.is_empty() && self.note.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Order {
@@ -355,6 +470,7 @@ pub struct Order {
     pub event: Event,
     pub guests: Vec<Guest>,
     pub options: Options,
+    pub access: Access,
 }
 
 impl Default for Order {
@@ -364,6 +480,7 @@ impl Default for Order {
             event: Event::default(),
             guests: Vec::new(),
             options: Options::default(),
+            access: Access::default(),
         }
     }
 }
@@ -376,14 +493,25 @@ impl Order {
         order.validated()
     }
 
+    /// 案内図のように宛名を使わない出力向け(ゲストが 0 名でもよい).
+    pub fn from_json_without_guests(json: &str) -> Result<Order, String> {
+        let order: Order =
+            serde_json::from_str(json).map_err(|e| format!("入力データの形式が正しくありません: {e}"))?;
+        order.validated_with(false)
+    }
+
     pub fn validated(self) -> Result<Order, String> {
+        self.validated_with(true)
+    }
+
+    fn validated_with(self, require_guests: bool) -> Result<Order, String> {
         let guests: Vec<Guest> = self
             .guests
             .into_iter()
             .map(Guest::cleaned)
             .filter(|g| !g.name.is_empty())
             .collect();
-        if guests.is_empty() {
+        if require_guests && guests.is_empty() {
             return Err("ゲストを 1 名以上入力してください".into());
         }
         if guests.len() > MAX_GUESTS {
@@ -402,6 +530,7 @@ impl Order {
             event: self.event.cleaned(),
             guests,
             options: self.options,
+            access: self.access.cleaned(),
         })
     }
 }

@@ -93,6 +93,14 @@ pub enum Op {
         w: f32,
         h: f32,
     },
+    /// 登録済みの写真(photos)を (x, y) を左下に w×h で描く
+    Image {
+        id: String,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
 }
 
 pub type Rect = [f32; 4];
@@ -170,6 +178,17 @@ impl Canvas {
     /// 次の restore までの描画を矩形の内側に切り抜く.
     pub fn clip_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
         self.op(Op::ClipRect { x, y, w, h });
+    }
+
+    /// 登録済みの写真を描く(縦横比は呼び出し側で決める).
+    pub fn draw_image(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32) {
+        self.op(Op::Image {
+            id: id.to_string(),
+            x,
+            y,
+            w,
+            h,
+        });
     }
 
     pub fn draw_path(&mut self, path: Path, stroke: bool, fill: bool) {

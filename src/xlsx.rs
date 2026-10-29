@@ -13,7 +13,7 @@ use quick_xml::Reader;
 use serde::Serialize;
 
 use crate::designs;
-use crate::model::{Date, Event, Guest, Options, Order, MAX_GUESTS};
+use crate::model::{Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, MAX_GUESTS, MAX_ROUTES};
 use crate::roster::{self, ONEW_SHEET};
 use crate::zip;
 
@@ -34,6 +34,7 @@ enum Kind {
 enum Slot {
     Design,
     Event(fn(&mut Event) -> &mut String),
+    Access(fn(&mut Access) -> &mut String),
     CropMarks,
     EnvelopeBack,
 }
@@ -148,7 +149,21 @@ const SETTINGS: &[SettingRow] = &[
         slot: Slot::EnvelopeBack,
         help: "差出人の裏面ページを付けるか",
     },
+    SettingRow {
+        label: "案内図のタイトル",
+        kind: Kind::Text,
+        slot: Slot::Access(|a| &mut a.title),
+        help: "案内図(ハガキ)の見出し。交通手段は「アクセス」シートに書きます(写真は画面で追加)",
+    },
+    SettingRow {
+        label: "案内図の補足",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.note),
+        help: "例: 送迎バスの時刻",
+    },
 ];
+
+pub const ACCESS_SHEET: &str = "アクセス";
 
 const FLAG_ON: &str = "する";
 const FLAG_OFF: &str = "しない";
@@ -212,6 +227,7 @@ fn settings_value(order: &Order, row: &SettingRow) -> String {
     match row.slot {
         Slot::Design => designs::get(&order.design).name.to_string(),
         Slot::Event(f) => f(&mut order.event.clone()).clone(),
+        Slot::Access(f) => f(&mut order.access.clone()).clone(),
         Slot::CropMarks => (if order.options.crop_marks { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::EnvelopeBack => (if order.options.envelope_back { FLAG_ON } else { FLAG_OFF }).into(),
     }
@@ -282,6 +298,8 @@ fn table_sheet(rows: &[Vec<String>]) -> String {
     x.push_str(FROZEN_HEADER);
     x.push_str("<cols>");
     let width = |h: &str| match h {
+        "説明" => 64,
+        "種類" => 12,
         "住所1" => 30,
         "住所2" => 30,
         "備考" | "特記事項" | "配席メモ" => 24,
@@ -380,7 +398,56 @@ pub fn write_workbook(order: &Order) -> Vec<u8> {
     build_workbook(&[
         (SETTINGS_SHEET, settings_sheet(order)),
         (ONEW_SHEET, table_sheet(&roster::onew_table(&order.guests))),
+        (ACCESS_SHEET, access_sheet(&order.access)),
     ])
+}
+
+/// 案内図の交通手段(種類はプルダウン).
+fn access_sheet(access: &Access) -> String {
+    let mut rows = vec![vec!["種類".to_string(), "説明".to_string()]];
+    for r in &access.routes {
+        let label = ACCESS_MODES
+            .iter()
+            .find(|(k, _)| *k == r.mode)
+            .map(|(_, l)| *l)
+            .unwrap_or("");
+        rows.push(vec![label.to_string(), r.text.clone()]);
+    }
+    let labels: Vec<&str> = ACCESS_MODES.iter().map(|(_, l)| *l).collect();
+    let validation = format!(
+        r#"<dataValidations count="1"><dataValidation type="list" allowBlank="1" showErrorMessage="1" sqref="A2:A{}"><formula1>"{}"</formula1></dataValidation></dataValidations><pageMargins"#,
+        MAX_ROUTES + 1,
+        esc(&labels.join(","))
+    );
+    table_sheet(&rows).replacen("<pageMargins", &validation, 1)
+}
+
+/// 「アクセス」シートの表から交通手段を読む.
+fn read_routes(rows: &[Vec<String>], warnings: &mut Vec<String>) -> Option<Vec<AccessRoute>> {
+    let h = rows.iter().position(|r| r.iter().any(|c| c.trim() == "種類"))?;
+    let col = |name: &str| rows[h].iter().position(|c| c.trim() == name);
+    let (mode_col, text_col) = (col("種類")?, col("説明")?);
+    let mut routes = Vec::new();
+    for row in &rows[h + 1..] {
+        let get = |i: usize| row.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
+        let (label, text) = (get(mode_col), get(text_col));
+        if text.is_empty() {
+            continue;
+        }
+        let mode = ACCESS_MODES
+            .iter()
+            .find(|(k, l)| *l == label || k.eq_ignore_ascii_case(&label))
+            .map(|(k, _)| *k);
+        let mode = mode.unwrap_or_else(|| {
+            warnings.push(format!("交通手段「{label}」が分からないため「電車」にしました"));
+            "train"
+        });
+        routes.push(AccessRoute {
+            mode: mode.into(),
+            text,
+        });
+    }
+    Some(routes)
 }
 
 /// ゲスト名簿だけを One-W の出席者名簿形式の xlsx にする.
@@ -745,7 +812,7 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         _ => order.options.envelope_back = value,
                     }
                 }
-                Slot::Event(f) => {
+                Slot::Event(_) | Slot::Access(_) => {
                     let value = match (&cell, setting.kind) {
                         (None, _) => String::new(),
                         (Some(c), Kind::Date) => to_date(c).unwrap_or_else(|t| {
@@ -762,7 +829,11 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         },
                         (Some(c), _) => c.text(),
                     };
-                    *f(&mut order.event) = value;
+                    match setting.slot {
+                        Slot::Event(f) => *f(&mut order.event) = value,
+                        Slot::Access(f) => *f(&mut order.access) = value,
+                        _ => {}
+                    }
                 }
             }
         }
@@ -772,11 +843,29 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
     }
     order.event = order.event.cleaned();
 
+    if let Some((_, path)) = sheets.iter().find(|(n, _)| n == ACCESS_SHEET) {
+        let rows: Vec<Vec<String>> = grid_of(path)?
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|c| c.map(|c| c.text()).unwrap_or_default())
+                    .collect()
+            })
+            .collect();
+        match read_routes(&rows, &mut warnings) {
+            Some(routes) => order.access.routes = routes,
+            None => warnings.push(format!(
+                "「{ACCESS_SHEET}」シートに「種類」「説明」の見出しが見つかりません"
+            )),
+        }
+    }
+    order.access = order.access.cleaned();
+
     // ゲスト名簿: 「出席者名簿」(旧「ゲスト」)を優先し、なければ見出しのあるシートを探す
     let mut ordered: Vec<&(String, String)> = sheets.iter().collect();
     ordered.sort_by_key(|(name, _)| match name.as_str() {
         ONEW_SHEET | "ゲスト" => 0,
-        SETTINGS_SHEET => 2,
+        SETTINGS_SHEET | ACCESS_SHEET => 2,
         _ => 1,
     });
     let mut found = false;
@@ -829,6 +918,10 @@ mod tests {
 
     fn sample_order() -> Order {
         Order {
+            access: crate::model::Access {
+                note: "送迎バスあり\n10:00 発".into(),
+                ..crate::model::Access::default()
+            },
             design: "yuki".into(),
             event: Event {
                 date_line: "2027年1月吉日".into(),
@@ -863,6 +956,11 @@ mod tests {
             (&order.design, &order.event, &order.options)
         );
         assert!(got.event.message.contains('\n'));
+        assert_eq!(got.access.routes, order.access.routes, "交通手段も往復で残る");
+        assert_eq!(
+            (got.access.title.as_str(), got.access.note.as_str()),
+            ("ご案内図", "送迎バスあり\n10:00 発")
+        );
         // 宛名に使う内容は同じ(郵便番号は One-W に合わせて数字だけで保存される)
         let printed = |g: &Guest| {
             (

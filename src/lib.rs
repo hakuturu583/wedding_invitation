@@ -3,6 +3,7 @@
 //! レイアウトは [`canvas::Canvas`] に描画命令として記録し、入稿用の PDF と
 //! 画面プレビュー用の SVG の両方に同じ内容を書き出す。
 
+pub mod access;
 pub mod canvas;
 pub mod csv;
 pub mod designs;
@@ -10,6 +11,7 @@ pub mod fonts;
 pub mod layout;
 pub mod model;
 pub mod pdf;
+pub mod photos;
 pub mod roster;
 pub mod svg;
 pub mod typeset;
@@ -22,11 +24,14 @@ use model::{Event, Options, Order};
 
 pub const CARD_FILE: &str = "invitation_cards.pdf";
 pub const ENVELOPE_FILE: &str = "envelopes.pdf";
+pub const ACCESS_FILE: &str = "access_map.pdf";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Doc {
     Card,
     Envelope,
+    /// 案内図(ハガキ)
+    Access,
 }
 
 impl Doc {
@@ -34,8 +39,22 @@ impl Doc {
         match s {
             "card" => Ok(Doc::Card),
             "envelope" => Ok(Doc::Envelope),
+            "access" => Ok(Doc::Access),
             _ => Err("不明な出力種別です".into()),
         }
+    }
+
+    /// 宛名(ゲスト)が必要な出力か.
+    pub fn needs_guests(self) -> bool {
+        self != Doc::Access
+    }
+}
+
+fn parse_order(order_json: &str, doc: Doc) -> Result<Order, String> {
+    if doc.needs_guests() {
+        Order::from_json(order_json)
+    } else {
+        Order::from_json_without_guests(order_json)
     }
 }
 
@@ -51,6 +70,7 @@ pub fn pages(order: &Order, doc: Doc) -> Vec<canvas::Page> {
     match doc {
         Doc::Card => layout::card_pages(&order.event, &order.guests, &order.design, &order.options),
         Doc::Envelope => layout::envelope_pages(&order.event, &order.guests, &order.design, &order.options),
+        Doc::Access => access::access_pages(&order.event, &order.access, &order.design, &order.options),
     }
 }
 
@@ -60,6 +80,7 @@ pub fn build_pdf(order: &Order, doc: Doc) -> Result<Vec<u8>, String> {
     let title = match doc {
         Doc::Card => format!("招待状カード ({})", d.name),
         Doc::Envelope => format!("封筒 宛名 ({})", d.name),
+        Doc::Access => format!("案内図 ({})", d.name),
     };
     pdf::write_pdf(&pages(order, doc), &title)
 }
@@ -67,22 +88,41 @@ pub fn build_pdf(order: &Order, doc: Doc) -> Result<Vec<u8>, String> {
 pub fn build_zip(order: &Order) -> Result<Vec<u8>, String> {
     let card = build_pdf(order, Doc::Card)?;
     let envelope = build_pdf(order, Doc::Envelope)?;
-    Ok(zip::write(&[(CARD_FILE, &card), (ENVELOPE_FILE, &envelope)], false))
+    let mut files: Vec<(&str, &[u8])> = vec![(CARD_FILE, &card), (ENVELOPE_FILE, &envelope)];
+    // 案内図は内容があるときだけ入れる
+    let access = if order.access.is_empty() {
+        None
+    } else {
+        Some(build_pdf(order, Doc::Access)?)
+    };
+    if let Some(access) = &access {
+        files.push((ACCESS_FILE, access));
+    }
+    Ok(zip::write(&files, false))
 }
 
-/// 指定したゲスト 1 名分の 1 ページ目を SVG で返す.
+/// 指定したゲスト 1 名分の 1 ページ目を SVG で返す(案内図はゲストに関係なく、表裏の全ページ).
 pub fn build_preview(order: &Order, doc: Doc, guest: usize) -> Result<String, String> {
     ensure_fonts()?;
-    let guest = order.guests[guest.min(order.guests.len() - 1)].clone();
+    let guests = match order.guests.get(guest.min(order.guests.len().saturating_sub(1))) {
+        Some(g) => vec![g.clone()],
+        None if !doc.needs_guests() => Vec::new(),
+        None => return Err("ゲストを 1 名以上入力してください".into()),
+    };
     let one = Order {
-        guests: vec![guest],
+        guests,
         options: Options {
             envelope_back: false,
             ..order.options
         },
         ..order.clone()
     };
-    Ok(svg::write_svg(&pages(&one, doc)[0]))
+    let pages = pages(&one, doc);
+    if doc == Doc::Access {
+        // 案内図は表裏をまとめて返す
+        return Ok(pages.iter().map(svg::write_svg).collect::<Vec<_>>().join("\n"));
+    }
+    Ok(svg::write_svg(&pages[0]))
 }
 
 // ------------------------------------------------------------------ JS 向け API
@@ -115,11 +155,12 @@ pub fn max_guests() -> usize {
     model::MAX_GUESTS
 }
 
-/// 入稿用 PDF を生成する。doc は "card" か "envelope".
+/// 入稿用 PDF を生成する。doc は "card" / "envelope" / "access".
 #[wasm_bindgen(js_name = renderPdf)]
 pub fn render_pdf(order_json: &str, doc: &str) -> Result<Vec<u8>, JsError> {
-    let order = Order::from_json(order_json).map_err(js_err)?;
-    build_pdf(&order, Doc::parse(doc).map_err(js_err)?).map_err(js_err)
+    let doc = Doc::parse(doc).map_err(js_err)?;
+    let order = parse_order(order_json, doc).map_err(js_err)?;
+    build_pdf(&order, doc).map_err(js_err)
 }
 
 /// 招待状カードと封筒の PDF をまとめた ZIP を生成する.
@@ -132,8 +173,42 @@ pub fn render_zip(order_json: &str) -> Result<Vec<u8>, JsError> {
 /// 画面プレビュー用の SVG を生成する.
 #[wasm_bindgen(js_name = renderPreview)]
 pub fn render_preview(order_json: &str, doc: &str, guest: usize) -> Result<String, JsError> {
-    let order = Order::from_json(order_json).map_err(js_err)?;
-    build_preview(&order, Doc::parse(doc).map_err(js_err)?, guest).map_err(js_err)
+    let doc = Doc::parse(doc).map_err(js_err)?;
+    let order = parse_order(order_json, doc).map_err(js_err)?;
+    build_preview(&order, doc, guest).map_err(js_err)
+}
+
+/// 案内図の写真を登録する。rgba はブラウザでデコード・縮小した画素、preview は画面表示用の data URL.
+#[wasm_bindgen(js_name = addPhoto)]
+pub fn add_photo(id: &str, width: u32, height: u32, rgba: &[u8], preview: String) -> Result<(), JsError> {
+    photos::add(id, width, height, rgba, preview).map_err(js_err)
+}
+
+#[wasm_bindgen(js_name = removePhoto)]
+pub fn remove_photo(id: &str) {
+    photos::remove(id);
+}
+
+/// 写真の長辺の上限(px).
+#[wasm_bindgen(js_name = maxPhotoEdge)]
+pub fn max_photo_edge() -> u32 {
+    photos::MAX_EDGE
+}
+
+/// 案内図の初期値と交通手段の一覧(JSON).
+#[wasm_bindgen(js_name = accessDefaultsJson)]
+pub fn access_defaults_json() -> String {
+    let modes: Vec<_> = model::ACCESS_MODES
+        .iter()
+        .map(|(k, l)| serde_json::json!({"key": k, "label": l}))
+        .collect();
+    serde_json::json!({
+        "access": model::Access::default(),
+        "modes": modes,
+        "max_routes": model::MAX_ROUTES,
+        "max_steps": model::MAX_STEPS,
+    })
+    .to_string()
 }
 
 /// CSV を読み込み、ゲスト一覧(JSON)を返す.
@@ -155,6 +230,7 @@ pub fn export_xlsx(order_json: &str) -> Result<Vec<u8>, JsError> {
     let order: Order = serde_json::from_str(order_json).map_err(|e| JsError::new(&e.to_string()))?;
     let order = Order {
         event: order.event.cleaned(),
+        access: order.access.cleaned(),
         guests: order
             .guests
             .into_iter()

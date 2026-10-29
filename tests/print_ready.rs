@@ -1,9 +1,11 @@
 //! 出力した PDF が入稿条件を満たしているかを検証する.
 
 use lopdf::{Document, Object};
+use wedding_invitation::access::POSTCARD_SIZE;
 use wedding_invitation::canvas::MM;
 use wedding_invitation::layout::{BLEED, CARD_SIZE, ENVELOPE_SIZE, MARK_AREA};
-use wedding_invitation::model::{Event, Guest, Options, Order};
+use wedding_invitation::model::{Access, Event, Guest, Options, Order, RouteStep};
+use wedding_invitation::photos;
 use wedding_invitation::{build_pdf, build_preview, build_zip, designs, fonts, Doc};
 
 fn order(design: &str, options: Options) -> Order {
@@ -22,6 +24,7 @@ fn order(design: &str, options: Options) -> Order {
             Guest::new("鈴木 一子", "530-0001", "大阪府大阪市北区梅田3丁目1番1号", "", ""),
         ],
         options,
+        access: Access::default(),
     }
 }
 
@@ -43,6 +46,34 @@ fn approx(a: &[f32], b: &[f32]) {
     }
 }
 
+/// 写真が DeviceCMYK の JPEG で、透明(SMask / Mask)を使っていないことを確かめる.
+fn assert_images_cmyk(doc: &Document, page_id: lopdf::ObjectId) -> usize {
+    let page = doc.get_dictionary(page_id).unwrap();
+    let res = match page.get(b"Resources").unwrap() {
+        Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+        o => o.as_dict().unwrap(),
+    };
+    let Ok(xobjects) = res.get(b"XObject") else { return 0 };
+    let xobjects = xobjects.as_dict().unwrap();
+    for (_, obj) in xobjects.iter() {
+        let stream = doc
+            .get_object(obj.as_reference().unwrap())
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        let dict = &stream.dict;
+        assert_eq!(dict.get(b"Subtype").unwrap().as_name().unwrap(), b"Image");
+        assert_eq!(dict.get(b"ColorSpace").unwrap().as_name().unwrap(), b"DeviceCMYK");
+        assert_eq!(dict.get(b"Filter").unwrap().as_name().unwrap(), b"DCTDecode");
+        assert_eq!(dict.get(b"BitsPerComponent").unwrap().as_i64().unwrap(), 8);
+        assert!(
+            dict.get(b"SMask").is_err() && dict.get(b"Mask").is_err(),
+            "透明を使わない"
+        );
+    }
+    xobjects.len()
+}
+
 /// 色の指定が CMYK だけであること、フォントが埋め込まれていることを確かめる.
 fn assert_print_ready(data: &[u8]) -> Document {
     let doc = Document::load_mem(data).expect("PDF として読めること");
@@ -52,13 +83,17 @@ fn assert_print_ready(data: &[u8]) -> Document {
         for op in &content.operations {
             match op.operator.as_str() {
                 "k" | "K" => has_cmyk = true,
-                "rg" | "RG" | "g" | "G" | "cs" | "CS" | "sc" | "SC" | "scn" | "SCN" | "gs" | "Do" | "sh" | "BI" => {
-                    panic!("CMYK 以外の色・透明効果・画像の指定があります: {}", op.operator)
+                "rg" | "RG" | "g" | "G" | "cs" | "CS" | "sc" | "SC" | "scn" | "SCN" | "gs" | "sh" | "BI" => {
+                    panic!(
+                        "CMYK 以外の色・透明効果・インライン画像の指定があります: {}",
+                        op.operator
+                    )
                 }
                 _ => {}
             }
         }
         assert!(has_cmyk);
+        assert_images_cmyk(&doc, page_id);
         let fonts = doc.get_page_fonts(page_id).unwrap();
         for (_, font) in fonts {
             assert_eq!(font.get(b"Subtype").unwrap().as_name().unwrap(), b"Type0");
@@ -230,4 +265,77 @@ fn preview_svg() {
     assert!(svg.contains("鈴") && svg.contains("ShipporiMincho"));
     let svg = build_preview(&o, Doc::Card, 99).unwrap();
     assert!(svg.contains("鈴木"), "範囲外の番号は最後のゲスト");
+}
+
+fn access_order(with_map: bool, steps: usize) -> Order {
+    let mut o = order("sakura", Options::default());
+    if with_map {
+        photos::add(
+            "map",
+            600,
+            400,
+            &photos::demo_rgba(600, 400, 0),
+            "data:image/jpeg;base64,".into(),
+        )
+        .unwrap();
+        o.access.map_photo = "map".into();
+    }
+    for i in 0..steps {
+        let id = format!("step{i}");
+        photos::add(&id, 400, 300, &photos::demo_rgba(400, 300, i as u32 + 1), String::new()).unwrap();
+        o.access.steps.push(RouteStep {
+            photo: id,
+            caption: format!("{} 番目の角を右に曲がります", i + 1),
+        });
+    }
+    o.access.note = "送迎バスがあります".into();
+    o
+}
+
+#[test]
+fn access_map_is_postcard_with_cmyk_photos() {
+    let (w, h) = POSTCARD_SIZE;
+    let off = BLEED + MARK_AREA;
+    // 地図と道順の両方: 表裏 2 ページ
+    let pdf = build_pdf(&access_order(true, 4), Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 2);
+    let page = doc.get_dictionary(pages[&1]).unwrap();
+    approx(&rect(&doc, page, b"TrimBox"), &[off, off, off + w, off + h]);
+    assert_eq!(assert_images_cmyk(&doc, pages[&1]), 1, "表は地図");
+    assert_eq!(assert_images_cmyk(&doc, pages[&2]), 4, "裏は道順の写真");
+    // どちらか一方なら 1 ページ
+    for (map, steps) in [(true, 0), (false, 6), (false, 0)] {
+        let pdf = build_pdf(&access_order(map, steps), Doc::Access).unwrap();
+        assert_eq!(assert_print_ready(&pdf).get_pages().len(), 1, "{map} {steps}");
+    }
+    // 写真を登録していない ID は描かない(エラーにしない)
+    let mut o = access_order(false, 0);
+    o.access.steps.push(RouteStep {
+        photo: "missing".into(),
+        caption: "写真なし".into(),
+    });
+    assert_print_ready(&build_pdf(&o, Doc::Access).unwrap());
+}
+
+#[test]
+fn access_preview_and_zip() {
+    let o = access_order(true, 2);
+    let svg = build_preview(&o, Doc::Access, 0).unwrap();
+    assert!(svg.contains("<image") && svg.contains("data:image/jpeg"));
+    let zip = build_zip(&o).unwrap();
+    assert!(String::from_utf8_lossy(&zip).contains("access_map.pdf"));
+    // 案内図が空なら ZIP に入れない
+    let mut empty = order("classic", Options::default());
+    empty.access = Access {
+        routes: Vec::new(),
+        ..Access::default()
+    };
+    assert!(!String::from_utf8_lossy(&build_zip(&empty).unwrap()).contains("access_map.pdf"));
+    // 案内図はゲストがいなくても作れる
+    let mut no_guests = access_order(false, 1);
+    no_guests.guests.clear();
+    assert!(build_preview(&no_guests, Doc::Access, 0).is_ok());
+    assert!(build_preview(&no_guests, Doc::Card, 0).is_err());
 }
