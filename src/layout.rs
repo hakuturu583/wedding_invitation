@@ -50,7 +50,7 @@ pub fn draw_crop_marks(c: &mut Canvas, w: f32, h: f32, b: f32, len: f32) {
 }
 
 /// 塗り足しつきページを用意し、仕上がり左下を原点に移動する.
-fn bleed_page(w: f32, h: f32, crop_marks: bool) -> Canvas {
+pub(crate) fn bleed_page(w: f32, h: f32, crop_marks: bool) -> Canvas {
     let off = BLEED + if crop_marks { MARK_AREA } else { 0.0 };
     let mut c = Canvas::new(
         w + 2.0 * off,

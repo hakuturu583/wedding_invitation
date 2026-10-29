@@ -2,6 +2,7 @@
 //!
 //! - 色はすべて DeviceCMYK (`k` / `K` オペレータのみ)。RGB・グレー・透明効果は出力しない
 //! - フォントは TrueType のサブセットを埋め込む(Type0 / CIDFontType2, Identity-H)
+//! - 写真は CMYK の JPEG(DCTDecode / DeviceCMYK)で埋め込む。透明(SMask)は使わない
 //! - ページには MediaBox / TrimBox / BleedBox を設定する
 
 use std::collections::BTreeMap;
@@ -12,6 +13,7 @@ use subsetter::GlyphRemapper;
 
 use crate::canvas::{Op, Page, Seg};
 use crate::fonts::{self, FontId};
+use crate::photos;
 
 #[derive(Default)]
 struct FontUse {
@@ -48,7 +50,18 @@ fn encode_text(font: FontId, text: &str, uses: &mut BTreeMap<FontId, FontUse>) -
     out
 }
 
-fn content_stream(page: &Page, uses: &mut BTreeMap<FontId, FontUse>) -> Vec<u8> {
+/// 写真の XObject 名(/Im1, /Im2, …)。文書内で写真 ID ごとに 1 つ.
+fn image_name(index: usize) -> String {
+    format!("Im{}", index + 1)
+}
+
+/// ページの内容ストリーム。images は文書全体の写真 ID の並び、used にはこのページで使った番号を入れる.
+fn content_stream(
+    page: &Page,
+    uses: &mut BTreeMap<FontId, FontUse>,
+    images: &mut Vec<String>,
+    used: &mut Vec<usize>,
+) -> Vec<u8> {
     let mut c = Content::new();
     for op in &page.ops {
         match op {
@@ -91,6 +104,23 @@ fn content_stream(page: &Page, uses: &mut BTreeMap<FontId, FontUse>) -> Vec<u8> 
                 c.clip_nonzero();
                 c.end_path();
             }
+            Op::Image { id, x, y, w, h } => {
+                if photos::get(id).is_none() {
+                    continue; // 未登録の写真は描かない
+                }
+                let index = images.iter().position(|i| i == id).unwrap_or_else(|| {
+                    images.push(id.clone());
+                    images.len() - 1
+                });
+                if !used.contains(&index) {
+                    used.push(index);
+                }
+                let name = image_name(index);
+                c.save_state();
+                c.transform([*w, 0.0, 0.0, *h, *x, *y]);
+                c.x_object(Name(name.as_bytes()));
+                c.restore_state();
+            }
             Op::Text { font, size, x, y, text } => {
                 let bytes = encode_text(*font, text, uses);
                 c.begin_text();
@@ -128,12 +158,19 @@ pub fn write_pdf(pages: &[Page], title: &str) -> Result<Vec<u8>, String> {
     let font_ids: BTreeMap<FontId, Ref> = FontId::ALL.iter().map(|f| (*f, alloc())).collect();
 
     let mut uses: BTreeMap<FontId, FontUse> = BTreeMap::new();
+    let mut images: Vec<String> = Vec::new();
+    let mut image_ids: Vec<Ref> = Vec::new();
     let mut page_ids = Vec::new();
     for page in pages {
         let page_id = alloc();
         let content_id = alloc();
         page_ids.push(page_id);
-        let stream = content_stream(page, &mut uses);
+        let before = images.len();
+        let mut used = Vec::new();
+        let stream = content_stream(page, &mut uses, &mut images, &mut used);
+        for _ in before..images.len() {
+            image_ids.push(alloc());
+        }
         pdf.stream(content_id, &deflate(&stream)).filter(Filter::FlateDecode);
         let mut p = pdf.page(page_id);
         p.media_box(Rect::new(0.0, 0.0, page.width, page.height));
@@ -146,6 +183,25 @@ pub fn write_pdf(pages: &[Page], title: &str) -> Result<Vec<u8>, String> {
         for (font, id) in &font_ids {
             fonts_dict.pair(resource_name(*font), *id);
         }
+        fonts_dict.finish();
+        if !used.is_empty() {
+            let mut xobjects = res.x_objects();
+            for &i in &used {
+                xobjects.pair(Name(image_name(i).as_bytes()), image_ids[i]);
+            }
+        }
+    }
+
+    for (id, photo_id) in image_ids.iter().zip(&images) {
+        let photo = photos::get(photo_id).expect("登録済みの写真");
+        let mut image = pdf.image_xobject(*id, &photo.cmyk_jpeg);
+        image.filter(Filter::DctDecode);
+        image.width(photo.width as i32);
+        image.height(photo.height as i32);
+        image.color_space().device_cmyk();
+        image.bits_per_component(8);
+        // Adobe 方式の CMYK JPEG は値が反転して保存されているので Decode で戻す
+        image.decode([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
     }
 
     for (font, type0_id) in &font_ids {

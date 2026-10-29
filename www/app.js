@@ -9,6 +9,7 @@ const STORAGE_KEY = "wedding-invitation-form";
 const FILE_NAMES = {
   zip: "wedding_invitation_print_data.zip",
   xlsx: "wedding_invitation.xlsx",
+  access: "access_map.pdf",
   guestsXlsx: "guests_onew.xlsx",
   guestsCsv: "guests_onew.csv",
   card: "invitation_cards.pdf",
@@ -27,6 +28,13 @@ let maxGuests = 500;
 let previewDoc = "card";
 let previewTimer = null;
 
+// 案内図
+let accessInfo = { access: { title: "", routes: [], steps: [] }, modes: [], max_routes: 8, max_steps: 6 };
+let mapPhotoId = "";
+const photoUrls = new Map(); // 写真 ID -> 画面表示用の data URL
+const STEP_EDGE = 1200; // 道順の写真の長辺(px)
+const PREVIEW_EDGE = 640; // プレビュー用の長辺(px)
+
 // ------------------------------------------------------------ 起動
 async function boot() {
   const [, mincho, script] = await Promise.all([
@@ -43,8 +51,11 @@ async function boot() {
   }
   defaults = JSON.parse(wasm.defaultEventJson());
   maxGuests = wasm.maxGuests();
+  accessInfo = JSON.parse(wasm.accessDefaultsJson());
   renderDesigns(JSON.parse(wasm.designsJson()));
-  fill(load());
+  const saved = load();
+  await restorePhotos(saved?.access);
+  fill(saved);
   bindEvents();
   refreshGuestSelect(guests());
   updatePreview();
@@ -154,6 +165,253 @@ function refreshGuestSelect(list) {
   $("guest-count").textContent = `${list.length} 名`;
 }
 
+// ------------------------------------------------------------ 写真
+// 縮小した JPEG を IndexedDB に保存し、再読み込みしても写真が残るようにする(保存できなくても動作する)
+const DB_NAME = "wedding-invitation-photos";
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("photos");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbRun(mode, fn) {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("photos", mode);
+      const req = fn(tx.objectStore("photos"));
+      tx.oncomplete = () => resolve(req?.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+const newPhotoId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+function canvasFor(bitmap, maxEdge) {
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff"; // 透明部分は白にする(印刷で透明は使わない)
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+// 画像を縮小・デコードして wasm に登録する(CMYK への変換は wasm 側)
+async function registerPhoto(id, blob, maxEdge, persist) {
+  const bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+  const canvas = canvasFor(bitmap, maxEdge);
+  const rgba = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  const previewUrl = canvasFor(bitmap, PREVIEW_EDGE).toDataURL("image/jpeg", 0.82);
+  bitmap.close?.();
+  wasm.addPhoto(id, canvas.width, canvas.height, new Uint8Array(rgba.buffer), previewUrl);
+  photoUrls.set(id, previewUrl);
+  if (persist) {
+    const stored = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+    await dbRun("readwrite", (s) => s.put({ blob: stored, maxEdge }, id));
+  }
+}
+
+function forgetPhoto(id) {
+  if (!id) return;
+  wasm.removePhoto(id);
+  photoUrls.delete(id);
+  dbRun("readwrite", (s) => s.delete(id));
+}
+
+async function restorePhotos(access) {
+  const ids = [access?.map_photo, ...(access?.steps || []).map((s) => s.photo)].filter(Boolean);
+  for (const id of ids) {
+    const rec = await dbRun("readonly", (s) => s.get(id));
+    if (!rec?.blob) continue;
+    try {
+      await registerPhoto(id, rec.blob, rec.maxEdge || STEP_EDGE, false);
+    } catch {
+      /* 壊れた写真は読み飛ばす */
+    }
+  }
+}
+
+function setThumb(box, id, emptyText) {
+  box.innerHTML = "";
+  const url = id && photoUrls.get(id);
+  box.classList.toggle("filled", Boolean(url));
+  if (url) {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "";
+    box.appendChild(img);
+  } else {
+    const span = document.createElement("span");
+    span.textContent = id ? "写真を選び直してください" : emptyText;
+    box.appendChild(span);
+  }
+}
+
+// ------------------------------------------------------------ 案内図
+function setMapPhoto(id) {
+  mapPhotoId = id || "";
+  setThumb($("map-thumb"), mapPhotoId, "地図の画像(スクリーンショットなど)");
+  $("map-remove").hidden = !mapPhotoId;
+}
+
+function addRoute(route = {}) {
+  const box = $("routes");
+  if (box.children.length >= accessInfo.max_routes) return null;
+  const row = document.createElement("div");
+  row.className = "route";
+  const select = document.createElement("select");
+  for (const m of accessInfo.modes) {
+    const opt = document.createElement("option");
+    opt.value = m.key;
+    opt.textContent = m.label;
+    select.appendChild(opt);
+  }
+  select.value = route.mode || "train";
+  const input = document.createElement("input");
+  input.value = route.text || "";
+  input.placeholder = "例: JR 〇〇駅 中央口より徒歩 5 分";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "remove";
+  remove.title = "削除";
+  remove.textContent = "×";
+  remove.addEventListener("click", () => {
+    row.remove();
+    changed();
+  });
+  row.append(select, input, remove);
+  box.appendChild(row);
+  return row;
+}
+
+function routes() {
+  return [...$("routes").children]
+    .map((row) => ({ mode: row.querySelector("select").value, text: row.querySelector("input").value.trim() }))
+    .filter((r) => r.text);
+}
+
+function renumberSteps() {
+  [...$("steps").children].forEach((card, i, all) => {
+    card.querySelector(".num").textContent = i + 1;
+    card.querySelector(".up").disabled = i === 0;
+    card.querySelector(".down").disabled = i === all.length - 1;
+  });
+}
+
+function addStep(step = {}) {
+  const box = $("steps");
+  if (box.children.length >= accessInfo.max_steps) return null;
+  const card = document.createElement("div");
+  card.className = "step-card";
+  card.dataset.photo = step.photo || "";
+  card.innerHTML = `
+    <div class="bar"><span class="num"></span><span class="spacer"></span>
+      <button type="button" class="up" title="前へ">↑</button>
+      <button type="button" class="down" title="後ろへ">↓</button>
+      <button type="button" class="remove" title="削除">×</button></div>
+    <label class="thumb" title="クリックで写真を変更"><input type="file" accept="image/*" hidden></label>
+    <textarea rows="2" placeholder="例: 改札を出て右へ進みます"></textarea>`;
+  const thumb = card.querySelector(".thumb");
+  const fileInput = thumb.querySelector("input");
+  const showThumb = () => {
+    setThumb(thumb, card.dataset.photo, "クリックして写真を選ぶ");
+    thumb.prepend(fileInput);
+  };
+  showThumb();
+  card.querySelector("textarea").value = step.caption || "";
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, STEP_EDGE, true);
+      forgetPhoto(card.dataset.photo);
+      card.dataset.photo = id;
+      showThumb();
+      changed();
+    } catch (err) {
+      showError(`写真を読み込めませんでした: ${err.message || err}`);
+    }
+  });
+  card.querySelector(".up").addEventListener("click", () => {
+    if (card.previousElementSibling) box.insertBefore(card, card.previousElementSibling);
+    renumberSteps();
+    changed();
+  });
+  card.querySelector(".down").addEventListener("click", () => {
+    if (card.nextElementSibling) box.insertBefore(card.nextElementSibling, card);
+    renumberSteps();
+    changed();
+  });
+  card.querySelector(".remove").addEventListener("click", () => {
+    forgetPhoto(card.dataset.photo);
+    card.remove();
+    renumberSteps();
+    changed();
+  });
+  box.appendChild(card);
+  renumberSteps();
+  return card;
+}
+
+function steps() {
+  return [...$("steps").children]
+    .map((card) => ({ photo: card.dataset.photo || "", caption: card.querySelector("textarea").value.trim() }))
+    .filter((s) => s.photo || s.caption);
+}
+
+function access() {
+  return {
+    title: form.elements.access_title.value.trim() || "ご案内図",
+    map_photo: mapPhotoId,
+    routes: routes(),
+    steps: steps(),
+    note: form.elements.access_note.value.trim(),
+    orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
+  };
+}
+
+function fillAccess(a) {
+  const value = { ...accessInfo.access, ...(a || {}) };
+  form.elements.access_title.value = value.title || "";
+  form.elements.access_note.value = value.note || "";
+  const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
+  form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
+  setMapPhoto(value.map_photo);
+  $("routes").innerHTML = "";
+  (value.routes || []).forEach((r) => addRoute(r));
+  $("steps").innerHTML = "";
+  (value.steps || []).forEach((s) => addStep(s));
+}
+
+async function addStepPhotos(files) {
+  for (const file of files) {
+    if ($("steps").children.length >= accessInfo.max_steps) {
+      showError(`道順の写真は ${accessInfo.max_steps} 枚までです`);
+      break;
+    }
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, STEP_EDGE, true);
+      addStep({ photo: id });
+    } catch (err) {
+      showError(`写真を読み込めませんでした: ${err.message || err}`);
+    }
+  }
+  changed();
+}
+
 // ------------------------------------------------------------ 入力値
 function order() {
   const fd = new FormData(form);
@@ -167,6 +425,7 @@ function order() {
       crop_marks: form.elements.crop_marks.checked,
       envelope_back: form.elements.envelope_back.checked,
     },
+    access: access(),
   };
 }
 
@@ -195,6 +454,7 @@ function fill(state) {
   ];
   rows.innerHTML = "";
   list.forEach((g) => addGuest(g));
+  fillAccess(state?.access);
 }
 
 // ------------------------------------------------------------ プレビュー・出力
@@ -204,12 +464,15 @@ function showError(err) {
 
 function updatePreview() {
   const o = order();
-  if (!o.guests.length) {
+  const needsGuests = previewDoc !== "access";
+  guestSelect.hidden = !needsGuests;
+  if (needsGuests && !o.guests.length) {
     showError("ゲストを 1 名以上入力してください");
     return;
   }
   try {
-    preview.innerHTML = wasm.renderPreview(JSON.stringify(o), previewDoc, Number(guestSelect.value || 0));
+    const svg = wasm.renderPreview(JSON.stringify(o), previewDoc, Number(guestSelect.value || 0));
+    preview.innerHTML = needsGuests ? svg : `<div class="pages">${svg}</div>`;
     showError(null);
   } catch (err) {
     showError(err);
@@ -237,7 +500,7 @@ function download(bytes, filename, type) {
 
 async function generate(doc, button) {
   const o = order();
-  if (!o.guests.length) {
+  if (doc !== "access" && !o.guests.length) {
     showError("ゲストを 1 名以上入力してください");
     return;
   }
@@ -328,6 +591,8 @@ async function importXlsx(file) {
       return;
     }
     if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
+    // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残す
+    imported.access = { ...imported.access, map_photo: mapPhotoId, steps: steps() };
     fill(imported);
     if (!imported.guests.length) {
       rows.innerHTML = "";
@@ -353,6 +618,33 @@ function bindEvents() {
     e.target.value = "";
   });
   $("export-xlsx").addEventListener("click", exportXlsx);
+  $("add-route").addEventListener("click", () => {
+    addRoute()?.querySelector("input").focus();
+  });
+  $("map-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, wasm.maxPhotoEdge(), true);
+      forgetPhoto(mapPhotoId);
+      setMapPhoto(id);
+      changed();
+    } catch (err) {
+      showError(`画像を読み込めませんでした: ${err.message || err}`);
+    }
+  });
+  $("map-remove").addEventListener("click", () => {
+    forgetPhoto(mapPhotoId);
+    setMapPhoto("");
+    changed();
+  });
+  $("step-files").addEventListener("change", (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    addStepPhotos(files);
+  });
   $("export-guests-xlsx").addEventListener("click", () => exportGuests("xlsx"));
   $("export-guests-csv").addEventListener("click", () => exportGuests("csv"));
   $("xlsx").addEventListener("change", (e) => {

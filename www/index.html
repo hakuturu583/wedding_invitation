@@ -57,8 +57,51 @@
       </div>
     </section>
 
+    <section class="panel access">
+      <h2><span class="step">3</span>案内図(ハガキ)</h2>
+      <p class="lead">ハガキサイズの案内図を作ります(縦 100×148mm / 横 148×100mm)。地図と道順の写真を両方入れると、表に地図と交通手段、裏に道順の写真を並べた表裏 2 ページになります。写真は CMYK に変換して入稿データに埋め込みます。</p>
+      <div class="grid">
+        <label class="wide">見出し<input name="access_title" placeholder="ご案内図"></label>
+      </div>
+      <div class="orientation" role="radiogroup" aria-label="ハガキの向き">
+        <span class="orientation-label">向き</span>
+        <label class="orient">
+          <input type="radio" name="access_orientation" value="portrait" checked>
+          <span><i class="shape portrait"></i>縦 100×148mm</span>
+        </label>
+        <label class="orient">
+          <input type="radio" name="access_orientation" value="landscape">
+          <span><i class="shape landscape"></i>横 148×100mm</span>
+        </label>
+      </div>
+
+      <h3>地図</h3>
+      <div class="photo-slot" id="map-slot">
+        <div class="thumb" id="map-thumb"><span>地図の画像(スクリーンショットなど)</span></div>
+        <div class="photo-actions">
+          <label class="button-like">画像を選ぶ<input type="file" id="map-file" accept="image/*" hidden></label>
+          <button type="button" id="map-remove" class="link">削除</button>
+        </div>
+      </div>
+
+      <h3>交通手段</h3>
+      <div id="routes" class="routes"></div>
+      <button type="button" id="add-route">＋ 交通手段を追加</button>
+
+      <h3>最寄り駅からの道順</h3>
+      <p class="hint">写真は撮った順に並べてください。番号と矢印が付きます(最大 6 枚)。</p>
+      <div id="steps" class="steps"></div>
+      <label class="button-like">＋ 写真を追加<input type="file" id="step-files" accept="image/*" multiple hidden></label>
+
+      <div class="grid">
+        <label class="wide">補足
+          <textarea name="access_note" rows="2" placeholder="例: 送迎バス 東京駅 八重洲口より 10:00 / 10:20 発"></textarea>
+        </label>
+      </div>
+    </section>
+
     <section class="panel">
-      <h2><span class="step">3</span>ゲスト</h2>
+      <h2><span class="step">4</span>ゲスト</h2>
       <div class="toolbar">
         <button type="button" id="add-guest">＋ ゲストを追加</button>
         <label class="button-like">名簿を読み込む(CSV / Excel)<input type="file" id="csv" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
@@ -82,7 +125,7 @@
     </section>
 
     <section class="panel">
-      <h2><span class="step">4</span>入稿データを出力</h2>
+      <h2><span class="step">5</span>入稿データを出力</h2>
       <div class="options">
         <label><input type="checkbox" name="crop_marks" checked> トンボ(トリムマーク)を付ける</label>
         <label><input type="checkbox" name="envelope_back" checked> 封筒の裏面(差出人)を付ける</label>
@@ -91,12 +134,14 @@
         <button type="button" class="primary" data-generate="zip">まとめてダウンロード (ZIP)</button>
         <button type="button" data-generate="card">招待状カード PDF</button>
         <button type="button" data-generate="envelope">封筒 宛名 PDF</button>
+        <button type="button" data-generate="access">案内図 PDF</button>
       </div>
       <p class="error" id="error" role="alert"></p>
       <dl class="spec">
         <dt>招待状カード</dt><dd>105×148mm(A6)・塗り足し各辺3mm・日本式トンボ・ゲスト1名につき1ページ</dd>
         <dt>封筒</dt><dd>洋形2号 114×162mm・縦書き宛名・ゲスト1名につき1ページ(裏面は共通1ページ)</dd>
-        <dt>色・フォント</dt><dd>すべて CMYK(RGB・透明効果なし)・フォント埋め込み済み</dd>
+        <dt>案内図</dt><dd>ハガキ 縦 100×148mm / 横 148×100mm・塗り足し各辺3mm・日本式トンボ・地図と道順写真があれば表裏2ページ</dd>
+        <dt>色・フォント</dt><dd>すべて CMYK(RGB・透明効果なし。写真も CMYK に変換)・フォント埋め込み済み</dd>
       </dl>
     </section>
   </form>
@@ -106,6 +151,7 @@
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-doc="card">招待状</button>
         <button type="button" class="tab" data-doc="envelope">封筒</button>
+        <button type="button" class="tab" data-doc="access">案内図</button>
       </div>
       <select id="preview-guest" aria-label="プレビューするゲスト"></select>
     </div>

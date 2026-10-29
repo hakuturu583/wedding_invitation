@@ -85,6 +85,17 @@ pub fn write_svg(page: &Page) -> String {
                     st = s;
                 }
             }
+            Op::Image { id, x, y, w, h } => {
+                let Some(photo) = crate::photos::get(id) else { continue };
+                // 画像の上端が y + h に来るよう、単位正方形を上下反転して置く
+                let m = mul(&st.ctm, &[*w, 0.0, 0.0, -*h, *x, y + h]);
+                let _ = write!(
+                    out,
+                    r#"<image transform="{}" width="1" height="1" preserveAspectRatio="none" href="{}"/>"#,
+                    fmt_matrix(&m),
+                    escape(&photo.preview_url)
+                );
+            }
             Op::ClipRect { x, y, w, h } => {
                 // 現在の座標系での矩形を SVG の座標に直す(回転は使わない前提で外接矩形を取る)
                 let m = st.ctm;
