@@ -141,7 +141,8 @@ pub fn normalize(text: &str) -> Result<Normalized, String> {
             ));
             SELECTING
         });
-        if scene.is_empty() && titles.is_empty() {
+        // 何も入っていない行だけ読み飛ばす(発注先や状況だけ入れた途中の行は残す)
+        if scene.is_empty() && titles.is_empty() && vendor.is_empty() && status == SELECTING {
             continue;
         }
         if status != SELECTING && titles.len() > 1 {
@@ -271,11 +272,14 @@ mod tests {
             {"scene": "乾杯", "titles": ["曲D", "曲E"], "status": "発注済", "vendor": "会場"},
             {"scene": "退場", "title": "曲F", "status": "謎"},
             "壊れた行",
-            {"scene": "", "titles": []}
+            {"scene": "", "titles": []},
+            {"scene": "", "titles": [], "vendor": "会場"},
+            {"scene": "", "titles": [], "status": "決定"}
         ]"#;
         let n = normalize(json).unwrap();
         let s = &n.list.songs;
-        assert_eq!(s.len(), 3);
+        assert_eq!(s.len(), 5, "空の行だけ読み飛ばし、途中まで入れた行は残す");
+        assert_eq!((s[3].vendor.as_str(), s[4].status.as_str()), ("会場", "決定"));
         assert_eq!(s[0].titles, ["曲A", "曲B", "曲C"]);
         assert_eq!(s[0].status, "選定中");
         assert_eq!(
