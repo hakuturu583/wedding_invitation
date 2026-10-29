@@ -49,7 +49,7 @@ pub fn encode_cmyk_jpeg(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>,
         return Err("写真のデータが壊れています".into());
     }
     let mut cmyk = Vec::with_capacity(rgba.len());
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         let a = px[3] as f32 / 255.0;
         let over_white = |v: u8| (v as f32 * a + 255.0 * (1.0 - a)).round() as u8;
         cmyk.extend_from_slice(&rgb_to_cmyk(over_white(px[0]), over_white(px[1]), over_white(px[2])));
