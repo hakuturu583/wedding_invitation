@@ -9,6 +9,8 @@ const STORAGE_KEY = "wedding-invitation-form";
 const FILE_NAMES = {
   zip: "wedding_invitation_print_data.zip",
   xlsx: "wedding_invitation.xlsx",
+  guestsXlsx: "guests_onew.xlsx",
+  guestsCsv: "guests_onew.csv",
   card: "invitation_cards.pdf",
   envelope: "envelopes.pdf",
 };
@@ -102,8 +104,14 @@ function addGuest(guest = {}) {
     input.value = guest[key] ?? (key === "honorific" ? "様" : "");
     if (key === "name") input.placeholder = "山田 太郎";
     if (key === "postal_code") input.placeholder = "123-4567";
+    if (key === "honorific") input.placeholder = "様";
     td.appendChild(input);
     tr.appendChild(td);
+  }
+  // 印刷に使わない One-W の列(肩書き・ふりがな・出欠など)は書き出し用に持っておく
+  if (guest.extra && Object.keys(guest.extra).length) {
+    tr.dataset.extra = JSON.stringify(guest.extra);
+    if (guest.extra["肩書き"]) tr.title = guest.extra["肩書き"];
   }
   const td = document.createElement("td");
   const btn = document.createElement("button");
@@ -124,8 +132,12 @@ function addGuest(guest = {}) {
 
 function guests() {
   return [...rows.children]
-    .map((tr) => Object.fromEntries(
-      [...tr.querySelectorAll("input")].map((i) => [i.dataset.field, i.value.trim()])))
+    .map((tr) => {
+      const g = Object.fromEntries(
+        [...tr.querySelectorAll("input")].map((i) => [i.dataset.field, i.value.trim()]));
+      if (tr.dataset.extra) g.extra = JSON.parse(tr.dataset.extra);
+      return g;
+    })
     .filter((g) => g.name);
 }
 
@@ -250,16 +262,41 @@ async function generate(doc, button) {
   }
 }
 
-async function importCsv(file) {
+function replaceGuests(list, label) {
+  if (!list.length) throw new Error(`${label}にゲストが見つかりませんでした`);
+  const replace = guests().length === 0 ||
+    confirm(`${list.length} 名を読み込みました。現在のゲスト一覧を置き換えますか？\n(キャンセルで末尾に追加)`);
+  if (replace) rows.innerHTML = "";
+  list.slice(0, maxGuests - (replace ? 0 : rows.children.length)).forEach((g) => addGuest(g));
+  changed();
+}
+
+// 名簿だけを読み込む(One-W の CSV / xlsx、簡易形式の CSV)
+async function importGuests(file) {
   showError(null);
   try {
-    const list = JSON.parse(wasm.parseGuestsCsv(new Uint8Array(await file.arrayBuffer())));
-    if (!list.length) throw new Error("CSV にゲストが見つかりませんでした");
-    const replace = guests().length === 0 ||
-      confirm(`${list.length} 名を読み込みました。現在のゲスト一覧を置き換えますか？\n(キャンセルで末尾に追加)`);
-    if (replace) rows.innerHTML = "";
-    list.slice(0, maxGuests - (replace ? 0 : rows.children.length)).forEach((g) => addGuest(g));
-    changed();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (/\.xlsx$/i.test(file.name)) {
+      const { order: imported, warnings } = JSON.parse(wasm.importXlsx(bytes));
+      replaceGuests(imported.guests, "Excel ");
+      if (warnings.length) showNotice(warnings.join("\n"), true);
+    } else {
+      replaceGuests(JSON.parse(wasm.parseGuestsCsv(bytes)), "CSV ");
+    }
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function exportGuests(kind) {
+  try {
+    const json = JSON.stringify(order());
+    if (kind === "xlsx") {
+      download(wasm.exportGuestsXlsx(json), FILE_NAMES.guestsXlsx,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    } else {
+      download(wasm.exportGuestsCsv(json), FILE_NAMES.guestsCsv, "text/csv");
+    }
   } catch (err) {
     showError(err);
   }
@@ -278,7 +315,18 @@ async function importXlsx(file) {
   showError(null);
   showNotice("");
   try {
-    const { order: imported, warnings } = JSON.parse(wasm.importXlsx(new Uint8Array(await file.arrayBuffer())));
+    const { order: imported, has_settings: hasSettings, warnings } =
+      JSON.parse(wasm.importXlsx(new Uint8Array(await file.arrayBuffer())));
+    if (!hasSettings) {
+      // One-W の出席者名簿など名簿だけのファイル: 挙式情報やデザインはそのまま
+      if (!confirm(`名簿だけのファイルです。ゲスト一覧を ${imported.guests.length} 名で置き換えます。よろしいですか？`)) return;
+      rows.innerHTML = "";
+      (imported.guests.length ? imported.guests : [{}]).forEach((g) => addGuest(g));
+      changed();
+      const summary = `「${file.name}」からゲスト ${imported.guests.length} 名を読み込みました(挙式情報・デザインは変更していません)`;
+      showNotice(warnings.length ? `${summary}\n${warnings.join("\n")}` : summary, warnings.length > 0);
+      return;
+    }
     if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
     fill(imported);
     if (!imported.guests.length) {
@@ -301,17 +349,19 @@ function bindEvents() {
     addGuest().querySelector("input").focus();
   });
   $("csv").addEventListener("change", (e) => {
-    if (e.target.files[0]) importCsv(e.target.files[0]);
+    if (e.target.files[0]) importGuests(e.target.files[0]);
     e.target.value = "";
   });
   $("export-xlsx").addEventListener("click", exportXlsx);
+  $("export-guests-xlsx").addEventListener("click", () => exportGuests("xlsx"));
+  $("export-guests-csv").addEventListener("click", () => exportGuests("csv"));
   $("xlsx").addEventListener("change", (e) => {
     if (e.target.files[0]) importXlsx(e.target.files[0]);
     e.target.value = "";
   });
   $("sample-csv").addEventListener("click", (e) => {
     e.preventDefault();
-    download(wasm.sampleCsv(), "guests_sample.csv", "text/csv");
+    download(wasm.sampleCsv(), "guests_onew_sample.csv", "text/csv");
   });
   document.querySelectorAll("[data-generate]").forEach((btn) =>
     btn.addEventListener("click", () => generate(btn.dataset.generate, btn)));

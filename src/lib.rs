@@ -10,6 +10,7 @@ pub mod fonts;
 pub mod layout;
 pub mod model;
 pub mod pdf;
+pub mod roster;
 pub mod svg;
 pub mod typeset;
 pub mod xlsx;
@@ -165,13 +166,36 @@ pub fn export_xlsx(order_json: &str) -> Result<Vec<u8>, JsError> {
     Ok(xlsx::write_workbook(&order))
 }
 
+fn guests_from_json(order_json: &str) -> Result<Vec<model::Guest>, JsError> {
+    let order: Order = serde_json::from_str(order_json).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(order
+        .guests
+        .into_iter()
+        .map(model::Guest::cleaned)
+        .filter(|g| !g.name.is_empty())
+        .collect())
+}
+
+/// ゲスト名簿を One-W の出席者名簿形式の xlsx にする.
+#[wasm_bindgen(js_name = exportGuestsXlsx)]
+pub fn export_guests_xlsx(order_json: &str) -> Result<Vec<u8>, JsError> {
+    Ok(xlsx::write_guest_workbook(&guests_from_json(order_json)?))
+}
+
+/// ゲスト名簿を One-W の出席者名簿形式の CSV(BOM 付き UTF-8)にする.
+#[wasm_bindgen(js_name = exportGuestsCsv)]
+pub fn export_guests_csv(order_json: &str) -> Result<Vec<u8>, JsError> {
+    Ok(csv::guests_csv(&guests_from_json(order_json)?))
+}
+
 /// サンプル入りの Excel テンプレート.
 #[wasm_bindgen(js_name = templateXlsx)]
 pub fn template_xlsx() -> Vec<u8> {
     xlsx::template()
 }
 
-/// Excel(xlsx)を読み込み、{order, warnings} の JSON を返す.
+/// Excel(xlsx)を読み込み、{order, has_settings, warnings} の JSON を返す.
+/// has_settings が偽なら名簿だけのファイル(One-W の出席者名簿など).
 #[wasm_bindgen(js_name = importXlsx)]
 pub fn import_xlsx(data: &[u8]) -> Result<String, JsError> {
     let imported = xlsx::read_workbook(data).map_err(js_err)?;

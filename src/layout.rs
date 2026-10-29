@@ -315,7 +315,7 @@ pub fn card_pages(event: &Event, guests: &[Guest], design: &str, options: &Optio
                     d.name,
                     i + 1,
                     guest.name,
-                    guest.honorific
+                    guest.honorific_or_default()
                 );
                 c.draw_string(-BLEED - MARK_AREA + 1.0 * MM, -BLEED - MARK_AREA + 1.5 * MM, &slug);
             }
@@ -331,7 +331,7 @@ pub fn card_pages(event: &Event, guests: &[Guest], design: &str, options: &Optio
 fn name_columns(guest: &Guest) -> (Vec<(String, f32)>, String, f32) {
     let (family, given) = guest.family_given();
     let (family, given) = (to_vertical(&family), to_vertical(&given));
-    let honorific = to_vertical(&guest.honorific);
+    let honorific = to_vertical(guest.honorific_or_default());
     let joint = to_vertical(&guest.joint_name.replace('　', " "));
     let main = if given.is_empty() {
         family.clone()

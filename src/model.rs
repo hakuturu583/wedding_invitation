@@ -1,5 +1,7 @@
 //! 入力データのモデル.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MESSAGE: &str = "謹啓　{時候}
@@ -32,6 +34,7 @@ const WEEKDAYS: [&str; 7] = ["月", "火", "水", "木", "金", "土", "日"];
 pub const MAX_GUESTS: usize = 500;
 const MAX_LEN: usize = 200;
 const MAX_MESSAGE_LEN: usize = 1000;
+const MAX_EXTRA_COLUMNS: usize = 64;
 
 fn clean(value: &str, limit: usize) -> String {
     value
@@ -139,7 +142,11 @@ pub struct Guest {
     pub address2: String,
     /// 連名(名のみ、またはフルネーム)
     pub joint_name: String,
+    /// 空欄なら印刷では「様」を使う(名簿には空欄のまま残す)
     pub honorific: String,
+    /// 印刷には使わないが名簿の書き出しで残す列(One-W の肩書き・ふりがな・出欠など)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
 }
 
 impl Guest {
@@ -151,19 +158,35 @@ impl Guest {
             address2: address2.into(),
             joint_name: joint.into(),
             honorific: "様".into(),
+            extra: BTreeMap::new(),
         }
         .cleaned()
     }
 
     pub fn cleaned(self) -> Guest {
-        let honorific = clean(&self.honorific, 10);
         Guest {
             name: clean(&self.name, MAX_LEN),
             postal_code: clean(&self.postal_code, 20),
             address1: clean(&self.address1, MAX_LEN),
             address2: clean(&self.address2, MAX_LEN),
             joint_name: clean(&self.joint_name, MAX_LEN),
-            honorific: if honorific.is_empty() { "様".into() } else { honorific },
+            honorific: clean(&self.honorific, 10),
+            extra: self
+                .extra
+                .into_iter()
+                .take(MAX_EXTRA_COLUMNS)
+                .map(|(k, v)| (clean(&k, 50), clean(&v, MAX_LEN)))
+                .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+                .collect(),
+        }
+    }
+
+    /// 印刷に使う敬称(空欄なら「様」).
+    pub fn honorific_or_default(&self) -> &str {
+        if self.honorific.is_empty() {
+            "様"
+        } else {
+            &self.honorific
         }
     }
 
@@ -200,9 +223,10 @@ impl Guest {
     pub fn card_line(&self) -> String {
         let (family, given) = self.family_given();
         let main = format!("{family} {given}");
-        let mut line = format!("{} {}", main.trim(), self.honorific);
+        let honorific = self.honorific_or_default();
+        let mut line = format!("{} {honorific}", main.trim());
         if !self.joint_name.is_empty() {
-            line += &format!("　{} {}", self.joint_name, self.honorific);
+            line += &format!("　{} {honorific}", self.joint_name);
         }
         line
     }
@@ -438,7 +462,7 @@ mod tests {
         assert!(Order::from_json(r#"{"guests": [{"name": "a"}], "design": "nope"}"#).is_err());
         let o = Order::from_json(r#"{"guests": [{"name": " 山田 太郎 "}, {"name": ""}]}"#).unwrap();
         assert_eq!(o.guests.len(), 1);
-        assert_eq!(o.guests[0].honorific, "様");
+        assert_eq!(o.guests[0].honorific_or_default(), "様");
         assert_eq!(o.design, "classic");
     }
 }

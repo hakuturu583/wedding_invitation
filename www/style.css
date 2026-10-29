@@ -161,3 +161,7 @@ table.guests { width: 100%; border-collapse: collapse; min-width: 760px; }
 .notice { margin: 10px 0 0; font-size: 0.85rem; white-space: pre-line; }
 .notice:empty { display: none; }
 .notice.warn { color: var(--error); }
+
+.toolbar.sub { font-size: 0.85rem; color: var(--muted); }
+.toolbar.sub button { padding: 5px 12px; }
+.panel > .hint { display: block; margin: 0 0 10px; }

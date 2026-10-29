@@ -1,8 +1,7 @@
-//! ゲスト名簿 CSV の読み書き.
+//! ゲスト名簿 CSV の読み書き(One-W の出席者名簿形式と簡易形式).
 
 use crate::model::{Guest, MAX_GUESTS};
-
-pub const COLUMNS: [&str; 6] = ["氏名", "郵便番号", "住所1", "住所2", "連名", "敬称"];
+use crate::roster;
 
 const SAMPLE_ROWS: [[&str; 6]; 2] = [
     [
@@ -15,38 +14,6 @@ const SAMPLE_ROWS: [[&str; 6]; 2] = [
     ],
     ["鈴木 一子", "530-0001", "大阪府大阪市北区梅田3-1-1", "", "", "様"],
 ];
-
-#[derive(Clone, Copy, PartialEq)]
-enum Field {
-    Name,
-    Postal,
-    Address1,
-    Address2,
-    Joint,
-    Honorific,
-}
-
-const DEFAULT_ORDER: [Field; 6] = [
-    Field::Name,
-    Field::Postal,
-    Field::Address1,
-    Field::Address2,
-    Field::Joint,
-    Field::Honorific,
-];
-
-/// CSV の見出し(日本語/英語どちらでも可)を項目に対応させる.
-fn header_field(cell: &str) -> Option<Field> {
-    Some(match cell.trim().to_lowercase().as_str() {
-        "name" | "氏名" | "名前" | "お名前" => Field::Name,
-        "postal_code" | "郵便番号" | "〒" => Field::Postal,
-        "address1" | "住所1" | "住所" => Field::Address1,
-        "address2" | "住所2" | "建物名" => Field::Address2,
-        "joint_name" | "連名" => Field::Joint,
-        "honorific" | "敬称" => Field::Honorific,
-        _ => return None,
-    })
-}
 
 /// UTF-8(BOM 付き含む)と Excel の Shift_JIS(cp932) に対応.
 pub fn decode(data: &[u8]) -> Result<String, String> {
@@ -99,39 +66,17 @@ pub fn parse_rows(text: &str) -> Vec<Vec<String>> {
     rows
 }
 
+/// 名簿 CSV を読み込む。One-W 形式・簡易形式は見出しで見分け、見出しがなければ簡易形式の列順とみなす.
 pub fn parse_guests(data: &[u8]) -> Result<Vec<Guest>, String> {
     let rows = parse_rows(&decode(data)?);
-    let Some(first) = rows.first() else {
-        return Ok(Vec::new());
-    };
-    let header: Vec<Option<Field>> = first.iter().map(|c| header_field(c)).collect();
-    let (header, body): (Vec<Option<Field>>, &[Vec<String>]) = if header.contains(&Some(Field::Name)) {
-        (header, &rows[1..])
-    } else {
-        // 見出しなし: 既定の列順とみなす
-        (DEFAULT_ORDER.iter().map(|f| Some(*f)).collect(), &rows[..])
-    };
-    let guests = body
-        .iter()
-        .take(MAX_GUESTS)
-        .map(|row| {
-            let mut g = Guest::default();
-            for (field, value) in header.iter().zip(row) {
-                let slot = match field {
-                    Some(Field::Name) => &mut g.name,
-                    Some(Field::Postal) => &mut g.postal_code,
-                    Some(Field::Address1) => &mut g.address1,
-                    Some(Field::Address2) => &mut g.address2,
-                    Some(Field::Joint) => &mut g.joint_name,
-                    Some(Field::Honorific) => &mut g.honorific,
-                    None => continue,
-                };
-                *slot = value.clone();
-            }
-            g.cleaned()
-        })
-        .filter(|g| !g.name.is_empty())
-        .collect();
+    let mut guests = roster::guests_from_table(&rows).unwrap_or_else(|| {
+        let header = roster::default_header();
+        rows.iter()
+            .map(|r| roster::guest_from_row(&header, r))
+            .filter(|g| !g.name.is_empty())
+            .collect()
+    });
+    guests.truncate(MAX_GUESTS);
     Ok(guests)
 }
 
@@ -151,14 +96,24 @@ pub fn sample_guests() -> Vec<Guest> {
         .collect()
 }
 
-/// ひな形 CSV(Excel で文字化けしないよう BOM 付き UTF-8).
-pub fn sample_csv() -> Vec<u8> {
+fn to_csv(rows: &[Vec<String>]) -> Vec<u8> {
+    // Excel で文字化けしないよう BOM 付き UTF-8
     let mut out = String::from("\u{FEFF}");
-    for row in std::iter::once(COLUMNS).chain(SAMPLE_ROWS) {
+    for row in rows {
         out += &row.iter().map(|c| quote(c)).collect::<Vec<_>>().join(",");
         out += "\r\n";
     }
     out.into_bytes()
+}
+
+/// ゲスト一覧を One-W の出席者名簿形式の CSV にする.
+pub fn guests_csv(guests: &[Guest]) -> Vec<u8> {
+    to_csv(&roster::onew_table(guests))
+}
+
+/// ひな形 CSV(One-W 形式、サンプル入り).
+pub fn sample_csv() -> Vec<u8> {
+    guests_csv(&sample_guests())
 }
 
 #[cfg(test)]
@@ -171,6 +126,22 @@ mod tests {
         let names: Vec<_> = guests.iter().map(|g| g.name.as_str()).collect();
         assert_eq!(names, ["山田 太郎", "鈴木 一子"]);
         assert_eq!(guests[0].joint_name, "花子");
+        let printed = |g: &Guest| {
+            (
+                g.name.clone(),
+                g.display_postal(),
+                g.address1.clone(),
+                g.address2.clone(),
+            )
+        };
+        assert_eq!(
+            guests.iter().map(printed).collect::<Vec<_>>(),
+            sample_guests().iter().map(printed).collect::<Vec<_>>(),
+            "One-W 形式で書き出して読み直しても宛名は同じ"
+        );
+        assert!(String::from_utf8(sample_csv())
+            .unwrap()
+            .starts_with("\u{FEFF}姓,名,肩書き,"));
     }
 
     #[test]
@@ -179,7 +150,7 @@ mod tests {
             encoding_rs::SHIFT_JIS.encode("氏名,郵便番号,住所1\n佐藤 花子,100-0001,東京都千代田区千代田1-1\n");
         let g = parse_guests(&sjis).unwrap();
         assert_eq!(g[0].address1, "東京都千代田区千代田1-1");
-        assert_eq!(g[0].honorific, "様");
+        assert_eq!(g[0].honorific_or_default(), "様");
         let g = parse_guests("高橋 健,1000001,東京都\n".as_bytes()).unwrap();
         assert_eq!(g[0].postal_code, "1000001");
     }

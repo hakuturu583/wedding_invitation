@@ -1,6 +1,7 @@
 //! 入力内容を xlsx(Excel)に書き出し、読み込む.
 //!
-//! 「設定」シートにデザイン・挙式情報・出力オプションを、「ゲスト」シートに名簿を置く。
+//! 「設定」シートにデザイン・挙式情報・出力オプションを、「出席者名簿」シートに名簿を
+//! One-W と同じ列で置く。One-W から書き出した名簿だけの xlsx もそのまま読み込める。
 //! 読み込みは見出し(項目名)で対応を取るので、行や列の順番が入れ替わっても読める。
 //! Excel が日付・時刻・数値として保存したセルも文字列に直して取り込む。
 
@@ -13,10 +14,10 @@ use serde::Serialize;
 
 use crate::designs;
 use crate::model::{Date, Event, Guest, Options, Order, MAX_GUESTS};
+use crate::roster::{self, ONEW_SHEET};
 use crate::zip;
 
 pub const SETTINGS_SHEET: &str = "設定";
-pub const GUEST_SHEET: &str = "ゲスト";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -152,40 +153,6 @@ const SETTINGS: &[SettingRow] = &[
 const FLAG_ON: &str = "する";
 const FLAG_OFF: &str = "しない";
 
-const GUEST_COLUMNS: [&str; 6] = ["氏名", "郵便番号", "住所1", "住所2", "連名", "敬称"];
-const GUEST_HELP: [&str; 6] = [
-    "姓と名の間にスペース",
-    "123-4567",
-    "都道府県から番地まで",
-    "建物名・部屋番号",
-    "名のみ、またはフルネーム",
-    "空欄なら「様」",
-];
-
-fn guest_slot(g: &mut Guest, col: usize) -> &mut String {
-    match col {
-        0 => &mut g.name,
-        1 => &mut g.postal_code,
-        2 => &mut g.address1,
-        3 => &mut g.address2,
-        4 => &mut g.joint_name,
-        _ => &mut g.honorific,
-    }
-}
-
-/// ゲスト表の見出し(CSV と同じ別名も受け付ける).
-fn guest_column(header: &str) -> Option<usize> {
-    Some(match header.trim().to_lowercase().as_str() {
-        "氏名" | "名前" | "お名前" | "name" => 0,
-        "郵便番号" | "〒" | "postal_code" => 1,
-        "住所1" | "住所" | "address1" => 2,
-        "住所2" | "建物名" | "address2" => 3,
-        "連名" | "joint_name" => 4,
-        "敬称" | "honorific" => 5,
-        _ => return None,
-    })
-}
-
 // ------------------------------------------------------------------ 書き出し
 
 fn esc(s: &str) -> String {
@@ -204,8 +171,16 @@ fn esc(s: &str) -> String {
     out
 }
 
-fn col_letter(col: usize) -> char {
-    (b'A' + col as u8) as char
+/// 0 始まりの列番号 -> "A", "B", …, "Z", "AA", ….
+fn col_letter(col: usize) -> String {
+    let mut n = col + 1;
+    let mut out = Vec::new();
+    while n > 0 {
+        out.push(b'A' + ((n - 1) % 26) as u8);
+        n = (n - 1) / 26;
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap()
 }
 
 /// 文字列セル(インライン文字列).
@@ -301,78 +276,116 @@ fn settings_sheet(order: &Order) -> String {
     x
 }
 
-fn guest_sheet(order: &Order) -> String {
+/// 1 行目を見出しにした表のシート(ゲスト名簿用).
+fn table_sheet(rows: &[Vec<String>]) -> String {
     let mut x = String::from(SHEET_HEAD);
     x.push_str(FROZEN_HEADER);
     x.push_str("<cols>");
-    for (i, w) in [16, 12, 36, 28, 12, 8].iter().enumerate() {
+    let width = |h: &str| match h {
+        "住所1" => 30,
+        "住所2" => 30,
+        "備考" | "特記事項" | "配席メモ" => 24,
+        "PC Email" | "携帯 Email" => 22,
+        "肩書き" | "姓ふりがな" | "名ふりがな" | "外字ファイル名" | "携帯電話番号" | "電話番号" => {
+            14
+        }
+        _ => 10,
+    };
+    for (i, h) in rows.first().into_iter().flatten().enumerate() {
         let _ = write!(
             x,
-            r#"<col min="{0}" max="{0}" width="{w}" style="{S_TEXT}" customWidth="1"/>"#,
-            i + 1
+            r#"<col min="{0}" max="{0}" width="{1}" style="{S_TEXT}" customWidth="1"/>"#,
+            i + 1,
+            width(h)
         );
     }
     x.push_str("</cols><sheetData>");
-    x.push_str(r#"<row r="1">"#);
-    for (i, h) in GUEST_COLUMNS.iter().enumerate() {
-        cell(&mut x, i, 1, S_HEADER, h);
-    }
-    x.push_str("</row>");
-    for (i, g) in order.guests.iter().enumerate() {
-        let r = i + 2;
+    for (i, row) in rows.iter().enumerate() {
+        let r = i + 1;
+        let style = if i == 0 { S_HEADER } else { S_TEXT };
         let _ = write!(x, r#"<row r="{r}">"#);
-        let mut g = g.clone();
-        for col in 0..GUEST_COLUMNS.len() {
-            cell(&mut x, col, r, S_TEXT, guest_slot(&mut g, col));
+        for (col, value) in row.iter().enumerate() {
+            if !value.is_empty() || i == 0 {
+                cell(&mut x, col, r, style, value);
+            }
         }
         x.push_str("</row>");
     }
     x.push_str("</sheetData>");
-    // 見出しのコメント代わりに、記入例を入力規則のメッセージとして出す
-    x.push_str(r#"<dataValidations count="6">"#);
-    for (i, help) in GUEST_HELP.iter().enumerate() {
-        let c = col_letter(i);
-        let _ = write!(
-            x,
-            r#"<dataValidation allowBlank="1" showInputMessage="1" promptTitle="{}" prompt="{}" sqref="{c}2:{c}{}"/>"#,
-            esc(GUEST_COLUMNS[i]),
-            esc(help),
-            MAX_GUESTS + 1
-        );
-    }
-    x.push_str("</dataValidations>");
     x.push_str(
         r#"<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>"#,
     );
     x
 }
 
-/// 入力内容を xlsx にする(そのまま入力用のテンプレートとして使える).
-pub fn write_workbook(order: &Order) -> Vec<u8> {
-    let content_types = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#;
+/// シートの並びから xlsx を組み立てる.
+fn build_workbook(sheets: &[(&str, String)]) -> Vec<u8> {
+    let mut content_types = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>"#,
+    );
+    let mut sheet_list = String::new();
+    let mut rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+    );
+    for (i, (name, _)) in sheets.iter().enumerate() {
+        let n = i + 1;
+        let _ = write!(
+            content_types,
+            r#"<Override PartName="/xl/worksheets/sheet{n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#
+        );
+        let _ = write!(
+            sheet_list,
+            r#"<sheet name="{}" sheetId="{n}" r:id="rId{n}"/>"#,
+            esc(name)
+        );
+        let _ = write!(
+            rels,
+            r#"<Relationship Id="rId{n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{n}.xml"/>"#
+        );
+    }
+    content_types.push_str("</Types>");
+    let _ = write!(
+        rels,
+        r#"<Relationship Id="rId{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#,
+        sheets.len() + 1
+    );
     let root_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
     let workbook = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="0"/></bookViews><sheets><sheet name="{SETTINGS_SHEET}" sheetId="1" r:id="rId1"/><sheet name="{GUEST_SHEET}" sheetId="2" r:id="rId2"/></sheets></workbook>"#
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="0"/></bookViews><sheets>{sheet_list}</sheets></workbook>"#
     );
-    let workbook_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
-    let settings = settings_sheet(order);
-    let guests = guest_sheet(order);
-    zip::write(
-        &[
-            ("[Content_Types].xml", content_types.as_bytes()),
-            ("_rels/.rels", root_rels.as_bytes()),
-            ("xl/workbook.xml", workbook.as_bytes()),
-            ("xl/_rels/workbook.xml.rels", workbook_rels.as_bytes()),
-            ("xl/styles.xml", STYLES.as_bytes()),
-            ("xl/worksheets/sheet1.xml", settings.as_bytes()),
-            ("xl/worksheets/sheet2.xml", guests.as_bytes()),
-        ],
-        true,
-    )
+    let names: Vec<String> = (1..=sheets.len())
+        .map(|n| format!("xl/worksheets/sheet{n}.xml"))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![
+        ("[Content_Types].xml", content_types.as_bytes()),
+        ("_rels/.rels", root_rels.as_bytes()),
+        ("xl/workbook.xml", workbook.as_bytes()),
+        ("xl/_rels/workbook.xml.rels", rels.as_bytes()),
+        ("xl/styles.xml", STYLES.as_bytes()),
+    ];
+    for (path, (_, xml)) in names.iter().zip(sheets) {
+        files.push((path, xml.as_bytes()));
+    }
+    zip::write(&files, true)
+}
+
+/// 入力内容を xlsx にする(そのまま入力用のテンプレートとして使える).
+///
+/// ゲストは One-W の「出席者名簿」と同じ列で書き出す。
+pub fn write_workbook(order: &Order) -> Vec<u8> {
+    build_workbook(&[
+        (SETTINGS_SHEET, settings_sheet(order)),
+        (ONEW_SHEET, table_sheet(&roster::onew_table(&order.guests))),
+    ])
+}
+
+/// ゲスト名簿だけを One-W の出席者名簿形式の xlsx にする.
+pub fn write_guest_workbook(guests: &[Guest]) -> Vec<u8> {
+    build_workbook(&[(ONEW_SHEET, table_sheet(&roster::onew_table(guests)))])
 }
 
 // ------------------------------------------------------------------ 読み込み
@@ -671,17 +684,11 @@ fn find_design(text: &str) -> Option<&'static str> {
         .map(|d| d.key)
 }
 
-/// 郵便番号が数値として保存され先頭の 0 が消えた場合に戻す(例: 600001 -> 0600001).
-fn fix_postal(cell: &Cell) -> String {
-    match cell {
-        Cell::Number(n) if n.fract() == 0.0 && *n >= 0.0 && *n < 1e7 => format!("{:07}", *n as u64),
-        _ => cell.text(),
-    }
-}
-
 #[derive(Debug, Serialize)]
 pub struct Imported {
     pub order: Order,
+    /// 「設定」シートがあったか(なければ名簿だけのファイルとして扱う)
+    pub has_settings: bool,
     /// 読み込めなかった項目などの注意
     pub warnings: Vec<String>,
 }
@@ -700,13 +707,12 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
             .ok_or_else(|| format!("シート {path} が見つかりません"))?;
         parse_sheet(&String::from_utf8_lossy(xml), &shared)
     };
-    let find = |name: &str, fallback: usize| sheets.iter().find(|(n, _)| n == name).or_else(|| sheets.get(fallback));
 
     let mut order = Order::default();
     let mut warnings = Vec::new();
     let mut seen_settings = false;
 
-    if let Some((_, path)) = find(SETTINGS_SHEET, 0) {
+    if let Some((_, path)) = sheets.iter().find(|(n, _)| n == SETTINGS_SHEET) {
         for row in grid_of(path)? {
             let Some(label) = row.first().and_then(|c| c.as_ref()).map(Cell::text) else {
                 continue;
@@ -762,40 +768,37 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
         }
     }
     if !seen_settings {
-        warnings.push(format!(
-            "「{SETTINGS_SHEET}」シートが見つからないため、挙式情報は初期値のままです"
-        ));
         order.event = Event::default();
     }
     order.event = order.event.cleaned();
 
-    if let Some((_, path)) = find(GUEST_SHEET, 1) {
-        let grid = grid_of(path)?;
-        let header_row = grid
-            .iter()
-            .position(|row| row.iter().flatten().any(|c| guest_column(&c.text()) == Some(0)));
-        match header_row {
-            Some(h) => {
-                let columns: Vec<Option<usize>> = grid[h]
-                    .iter()
-                    .map(|c| c.as_ref().and_then(|c| guest_column(&c.text())))
-                    .collect();
-                for row in &grid[h + 1..] {
-                    let mut g = Guest::default();
-                    for (cell, col) in row.iter().zip(&columns) {
-                        let (Some(cell), Some(col)) = (cell, col) else { continue };
-                        *guest_slot(&mut g, *col) = if *col == 1 { fix_postal(cell) } else { cell.text() };
-                    }
-                    let g = g.cleaned();
-                    if !g.name.is_empty() {
-                        order.guests.push(g);
-                    }
-                }
-            }
-            None => warnings.push(format!("「{GUEST_SHEET}」シートに「氏名」の見出しが見つかりません")),
+    // ゲスト名簿: 「出席者名簿」(旧「ゲスト」)を優先し、なければ見出しのあるシートを探す
+    let mut ordered: Vec<&(String, String)> = sheets.iter().collect();
+    ordered.sort_by_key(|(name, _)| match name.as_str() {
+        ONEW_SHEET | "ゲスト" => 0,
+        SETTINGS_SHEET => 2,
+        _ => 1,
+    });
+    let mut found = false;
+    for (_, path) in ordered {
+        let rows: Vec<Vec<String>> = grid_of(path)?
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|c| c.map(|c| c.text()).unwrap_or_default())
+                    .collect()
+            })
+            .collect();
+        if let Some(guests) = roster::guests_from_table(&rows) {
+            order.guests = guests;
+            found = true;
+            break;
         }
-    } else {
-        warnings.push(format!("「{GUEST_SHEET}」シートが見つかりません"));
+    }
+    if !found {
+        warnings.push(format!(
+            "ゲスト名簿のシート(「{ONEW_SHEET}」など、1 行目に「姓」「名」または「氏名」の見出しがあるもの)が見つかりません"
+        ));
     }
     if order.guests.len() > MAX_GUESTS {
         warnings.push(format!(
@@ -803,7 +806,11 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
         ));
         order.guests.truncate(MAX_GUESTS);
     }
-    Ok(Imported { order, warnings })
+    Ok(Imported {
+        order,
+        has_settings: seen_settings,
+        warnings,
+    })
 }
 
 /// 画面の初期状態(サンプル入り)のテンプレート.
@@ -849,8 +856,39 @@ mod tests {
         let order = sample_order();
         let back = read_workbook(&write_workbook(&order)).unwrap();
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-        assert_eq!(back.order, order);
-        assert!(back.order.event.message.contains('\n'));
+        assert!(back.has_settings);
+        let got = &back.order;
+        assert_eq!(
+            (&got.design, &got.event, &got.options),
+            (&order.design, &order.event, &order.options)
+        );
+        assert!(got.event.message.contains('\n'));
+        // 宛名に使う内容は同じ(郵便番号は One-W に合わせて数字だけで保存される)
+        let printed = |g: &Guest| {
+            (
+                g.name.clone(),
+                g.display_postal(),
+                g.address1.clone(),
+                g.address2.clone(),
+                g.joint_name.clone(),
+            )
+        };
+        assert_eq!(
+            got.guests.iter().map(printed).collect::<Vec<_>>(),
+            order.guests.iter().map(printed).collect::<Vec<_>>()
+        );
+        // 2 回目以降の往復では完全に一致する
+        let again = read_workbook(&write_workbook(got)).unwrap();
+        assert_eq!(&again.order, got);
+    }
+
+    #[test]
+    fn guest_only_workbook() {
+        let order = sample_order();
+        let back = read_workbook(&write_guest_workbook(&order.guests)).unwrap();
+        assert!(!back.has_settings);
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert_eq!(back.order.guests.len(), 2);
     }
 
     #[test]
@@ -873,7 +911,6 @@ mod tests {
         assert_eq!(to_time(&Cell::Number(0.4375)).unwrap(), "10:30");
         assert_eq!(to_time(&Cell::Text("午後1時30分".into())).unwrap(), "13:30");
         assert_eq!(to_time(&Cell::Text("11:00".into())).unwrap(), "11:00");
-        assert_eq!(fix_postal(&Cell::Number(600001.0)), "0600001");
         assert_eq!(find_design("睦月"), Some("mutsuki"));
         assert_eq!(find_design("modern"), Some("modern"));
         assert_eq!(to_flag("付けない"), Some(false));
@@ -896,6 +933,15 @@ mod tests {
         assert_eq!(grid[2][0], Some(Cell::Text("山田 太郎".into())));
         assert_eq!(grid[2][1], Some(Cell::Number(600001.0)));
         assert_eq!(grid[2][2], Some(Cell::Text("TRUE".into())));
+    }
+
+    #[test]
+    fn column_letters() {
+        assert_eq!(col_letter(0), "A");
+        assert_eq!(col_letter(25), "Z");
+        assert_eq!(col_letter(26), "AA");
+        assert_eq!(col_letter(31), "AF");
+        assert_eq!(cell_ref("AF12"), Some((11, 31)));
     }
 
     #[test]
