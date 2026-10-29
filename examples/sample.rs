@@ -82,6 +82,30 @@ fn main() {
         };
         std::fs::write(format!("{out}/{name}.pdf"), build_pdf(&order, Doc::Access).unwrap()).unwrap();
     }
+    // 長い交通手段 8 件(横向き・地図あり)でもはみ出さないこと
+    {
+        let text = "JR 東京駅 丸の内中央口を出て駅前広場を左へ進み横断歩道を渡り徒歩約五分";
+        let mut access = access.clone();
+        access.orientation = "landscape".into();
+        access.steps.clear();
+        access.routes = wedding_invitation::model::ACCESS_MODES
+            .iter()
+            .map(|(k, _)| wedding_invitation::model::AccessRoute {
+                mode: k.to_string(),
+                text: text.into(),
+            })
+            .collect();
+        let order = Order {
+            design: "classic".into(),
+            access,
+            ..Order::default()
+        };
+        std::fs::write(
+            format!("{out}/access_landscape_long_routes.pdf"),
+            build_pdf(&order, Doc::Access).unwrap(),
+        )
+        .unwrap();
+    }
     std::fs::write(format!("{out}/template.xlsx"), wedding_invitation::xlsx::template()).unwrap();
     println!("{out} に書き出しました");
 }

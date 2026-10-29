@@ -219,12 +219,68 @@ const STEPS_HEADER: f32 = 6.0 * MM;
 const MAX_MAP: f32 = 95.0 * MM;
 const NOTE_SIZE: f32 = 6.3;
 
-fn route_lines(text: &str, w: f32) -> Vec<String> {
-    wrap(text, MINCHO, ROUTE_SIZE, w - (ICON + 1.5 * MM) - LABEL_W)
+/// 交通手段の文字・アイコンの大きさ(k は縮小率)と、1 件あたりの最大行数.
+#[derive(Clone, Copy)]
+struct RouteStyle {
+    k: f32,
+    max_lines: usize,
 }
 
-fn route_row_height(lines: usize) -> f32 {
-    (lines as f32 * ROUTE_SIZE * ROUTE_LEADING + 1.4 * MM).max(ICON + 1.2 * MM)
+impl RouteStyle {
+    fn size(&self) -> f32 {
+        ROUTE_SIZE * self.k
+    }
+    fn icon(&self) -> f32 {
+        ICON * self.k
+    }
+    fn label_w(&self) -> f32 {
+        LABEL_W * self.k
+    }
+}
+
+type RouteRows<'a> = Vec<(&'a str, Vec<String>)>;
+
+fn route_lines(text: &str, w: f32, st: RouteStyle) -> Vec<String> {
+    let mut lines = wrap(text, MINCHO, st.size(), w - (st.icon() + 1.5 * MM) - st.label_w());
+    if lines.len() > st.max_lines {
+        lines.truncate(st.max_lines);
+        if let Some(last) = lines.last_mut() {
+            last.pop();
+            last.push('…');
+        }
+    }
+    lines
+}
+
+fn route_row_height(lines: usize, st: RouteStyle) -> f32 {
+    (lines as f32 * st.size() * ROUTE_LEADING + 1.4 * MM * st.k).max(st.icon() + 1.2 * MM * st.k)
+}
+
+/// 高さ limit に収まるよう、文字を縮め(6 割まで)、それでも収まらなければ 1 件あたりの行数を減らす.
+fn fit_routes(access: &Access, w: f32, limit: f32) -> (RouteRows<'_>, RouteStyle, f32) {
+    let layout = |st: RouteStyle| {
+        let rows: RouteRows = access
+            .routes
+            .iter()
+            .map(|r| (r.mode.as_str(), route_lines(&r.text, w, st)))
+            .collect();
+        let h = rows.iter().map(|(_, l)| route_row_height(l.len(), st)).sum::<f32>();
+        (rows, st, h)
+    };
+    let scales = (0..=8).map(|i| RouteStyle {
+        k: 1.0 - 0.05 * i as f32,
+        max_lines: usize::MAX,
+    });
+    let shorter = [2, 1].map(|max_lines| RouteStyle { k: 0.6, max_lines });
+    let mut last = None;
+    for st in scales.chain(shorter) {
+        let result = layout(st);
+        if result.2 <= limit {
+            return result;
+        }
+        last = Some(result);
+    }
+    last.expect("候補は空でない")
 }
 
 fn caption_lines(text: &str, w: f32) -> Vec<String> {
@@ -338,22 +394,23 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f3
     y - 2.5 * MM * k
 }
 
-/// 交通手段を x から幅 col_w で描く.
-fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], d: &Design, x0: f32, mut y: f32) -> f32 {
+/// 交通手段を x0 から描く。描いた後の y を返す.
+fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d: &Design, x0: f32, mut y: f32) -> f32 {
+    let (size, icon) = (st.size(), st.icon());
     for (mode, lines) in routes {
-        let row_h = route_row_height(lines.len());
+        let row_h = route_row_height(lines.len(), st);
         let icon_cy = y - row_h / 2.0;
-        draw_icon(c, mode, x0 + ICON / 2.0, icon_cy, ICON, d.accent, Cmyk::PAPER);
-        let lh = ROUTE_SIZE * ROUTE_LEADING;
+        draw_icon(c, mode, x0 + icon / 2.0, icon_cy, icon, d.accent, Cmyk::PAPER);
+        let lh = size * ROUTE_LEADING;
         let text_top = icon_cy + lines.len() as f32 * lh / 2.0;
-        let x = x0 + ICON + 1.5 * MM;
-        let base = |i: usize| text_top - lh * (i as f32 + 1.0) + (lh - ROUTE_SIZE) / 2.0 + ROUTE_SIZE * 0.12;
-        c.set_font(MINCHO, ROUTE_SIZE);
+        let x = x0 + icon + 1.5 * MM;
+        let base = |i: usize| text_top - lh * (i as f32 + 1.0) + (lh - size) / 2.0 + size * 0.12;
+        c.set_font(MINCHO, size);
         c.set_fill(d.accent);
         c.draw_string(x, base(0), mode_label(mode));
         c.set_fill(d.text);
         for (i, line) in lines.iter().enumerate() {
-            c.draw_string(x + LABEL_W, base(i), line);
+            c.draw_string(x + st.label_w(), base(i), line);
         }
         y -= row_h;
     }
@@ -506,35 +563,36 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         }
         _ => (content_w, MARGIN, content_w),
     };
-    let routes: Vec<(&str, Vec<String>)> = access
-        .routes
-        .iter()
-        .map(|r| (r.mode.as_str(), route_lines(&r.text, route_w)))
-        .collect();
-    let routes_h: f32 = routes.iter().map(|(_, l)| route_row_height(l.len())).sum();
-
     let front = page(access, options, d, if two_sided { "(表)" } else { "" }, |c| {
         let mut y = draw_header(c, event, access, d);
+        let with_steps = steps_on_front;
+        // 交通手段に使える高さ: 横に並べるなら列の高さ、縦に積むなら地図と写真の分を残す
+        let route_limit = if side_by_side {
+            y - bottom
+        } else {
+            let reserved = if has_map { 30.0 * MM } else { 0.0 } + if with_steps { 28.0 * MM } else { 0.0 };
+            (y - bottom - reserved - 2.0 * SECTION_GAP).max(12.0 * MM)
+        };
+        let (routes, route_style, routes_h) = fit_routes(access, route_w, route_limit);
         if side_by_side {
             let col_h = (y - bottom).clamp(0.0, MAX_MAP);
             if has_map {
                 draw_map(c, access, d, MARGIN, y - col_h, left_w, col_h);
                 // 交通手段は地図の高さの中で上下の中央に置く
                 let offset = ((col_h - routes_h) / 2.0).max(0.0);
-                draw_routes(c, &routes, d, route_x, y - offset);
+                draw_routes(c, &routes, route_style, d, route_x, y - offset);
             } else {
                 let steps_x = MARGIN + left_w + COL_GAP;
                 let steps_w = content_w - left_w - COL_GAP;
                 let (grid, s) = choose_grid(access, steps_w, col_h, 2);
                 let steps_h = steps_height(access, steps_w, &grid, s);
                 let offset = ((steps_h - routes_h) / 2.0).max(0.0);
-                draw_routes(c, &routes, d, route_x, y - offset);
+                draw_routes(c, &routes, route_style, d, route_x, y - offset);
                 draw_steps(c, access, d, steps_x, steps_w, y, &grid, s);
             }
             draw_note(c, &note_lines, d);
             return;
         }
-        let with_steps = steps_on_front;
         let sections = [has_map, !routes.is_empty(), with_steps].iter().filter(|b| **b).count() as f32;
         let rest = (y - bottom - routes_h - SECTION_GAP * (sections - 1.0).max(0.0)).max(0.0);
         let (grid, s) = choose_grid(access, content_w, rest, max_cols);
@@ -553,7 +611,7 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             y -= map_h + SECTION_GAP;
         }
         if !routes.is_empty() {
-            y = draw_routes(c, &routes, d, MARGIN, y) - SECTION_GAP;
+            y = draw_routes(c, &routes, route_style, d, MARGIN, y) - SECTION_GAP;
         }
         if with_steps {
             draw_steps(c, access, d, MARGIN, content_w, y, &grid, s);
@@ -580,4 +638,42 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         );
     });
     vec![front, back]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::AccessRoute;
+
+    fn long_routes() -> Access {
+        let text = "JR 東京駅 丸の内中央口を出て駅前広場を左へ進み横断歩道を渡り徒歩約五分";
+        Access {
+            orientation: crate::model::LANDSCAPE.into(),
+            routes: ACCESS_MODES
+                .iter()
+                .map(|(k, _)| AccessRoute {
+                    mode: k.to_string(),
+                    text: text.into(),
+                })
+                .collect(),
+            ..Access::default()
+        }
+    }
+
+    #[test]
+    fn long_routes_fit_in_column() {
+        crate::fonts::init_from_repo();
+        let access = long_routes();
+        for (w, limit) in [(50.0 * MM, 50.0 * MM), (84.0 * MM, 40.0 * MM), (30.0 * MM, 20.0 * MM)] {
+            let (rows, st, h) = fit_routes(&access, w, limit);
+            assert_eq!(rows.len(), 8);
+            assert!(st.k >= 0.6 - 1e-3);
+            // 1 行ずつに減らしても収まらないほど狭い場合だけ超えてよい
+            if st.max_lines > 1 {
+                assert!(h <= limit + 0.01, "{h} > {limit}");
+            }
+        }
+        let (_, st, _) = fit_routes(&access, 120.0 * MM, 200.0 * MM);
+        assert_eq!(st.k, 1.0, "余裕があれば縮めない");
+    }
 }
