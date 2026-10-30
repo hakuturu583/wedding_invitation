@@ -26,7 +26,7 @@ pub fn postcard_size(access: &Access) -> (f32, f32) {
 }
 
 const MINCHO: FontId = FontId::Mincho;
-const MARGIN: f32 = 8.0 * MM;
+const MARGIN: f32 = 10.0 * MM;
 const PLACEHOLDER: Cmyk = Cmyk(0.0, 0.0, 0.0, 0.08);
 
 // ------------------------------------------------------------------ アイコン
