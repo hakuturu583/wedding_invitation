@@ -179,6 +179,7 @@ table.guests { width: 100%; border-collapse: collapse; min-width: 760px; }
 .access h3 { font-size: 0.95rem; margin: 18px 0 8px; }
 .access .lead { margin: 0 0 12px; font-size: 0.85rem; color: var(--muted); }
 .access .hint { margin: 0 0 8px; }
+[hidden] { display: none !important; }
 .photo-slot { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .thumb {
   width: 180px; aspect-ratio: 4 / 3; border: 1px dashed var(--line); border-radius: 6px;
