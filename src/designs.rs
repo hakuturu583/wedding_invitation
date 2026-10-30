@@ -720,24 +720,8 @@ fn white_corner(c: &mut Canvas, x: f32, y: f32, sx: f32, sy: f32, s: f32) {
     c.restore();
 }
 
-/// 左上と右下の角を gap だけ開けた枠。角の線画の花に線が重ならないようにする.
-fn open_frame(c: &mut Canvas, w: f32, h: f32, inset: f32, gap: f32) {
-    let (l, r, b, t) = (inset, w - inset, inset, h - inset);
-    let mut left_bottom = Path::new();
-    left_bottom.move_to(l, t - gap).line_to(l, b).line_to(r - gap, b);
-    c.draw_path(left_bottom, true, false);
-    let mut top_right = Path::new();
-    top_right.move_to(l + gap, t).line_to(r, t).line_to(r, b + gap);
-    c.draw_path(top_right, true, false);
-}
-
 fn white_card(c: &mut Canvas, _d: &Design, w: f32, h: f32, _bleed: f32) {
-    // 背景は紙の白のまま(インキを乗せない)
-    c.set_stroke(LINE_GRAY_LIGHT);
-    c.set_line_width(0.3);
-    open_frame(c, w, h, 6.0 * MM, 33.0 * MM);
-    c.set_line_width(0.2);
-    open_frame(c, w, h, 7.2 * MM, 33.0 * MM);
+    // 背景は紙の白のまま(インキを乗せない)。枠は付けず、角の線画の花だけにする
     white_corner(c, 4.5 * MM, h - 4.5 * MM, 1.0, -1.0, MM * 0.95);
     white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.95);
 }
@@ -838,7 +822,7 @@ pub static DESIGNS: [Design; 7] = [
     Design {
         key: "white",
         name: "ホワイト",
-        description: "紙の白を活かし、グレーの線画の花と細い二重の額縁で仕上げた清楚なデザイン",
+        description: "紙の白を活かし、角にグレーの線画の花をあしらった清楚なデザイン",
         background: None,
         accent: WHITE_TITLE,
         sub: LINE_GRAY_LIGHT,
