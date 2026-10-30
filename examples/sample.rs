@@ -83,6 +83,22 @@ fn main() {
         };
         std::fs::write(format!("{out}/{name}.pdf"), build_pdf(&order, Doc::Access).unwrap()).unwrap();
     }
+    // 案内図だけ別のデザイン(招待状はクラシックのまま)
+    for d in &designs::DESIGNS {
+        let mut access = access.clone();
+        access.orientation = "landscape".into();
+        access.design = d.key.into();
+        let order = Order {
+            design: "classic".into(),
+            access,
+            ..Order::default()
+        };
+        std::fs::write(
+            format!("{out}/access_landscape_{}.pdf", d.key),
+            build_pdf(&order, Doc::Access).unwrap(),
+        )
+        .unwrap();
+    }
     // 長い交通手段 8 件(横向き・地図あり)でもはみ出さないこと
     {
         let text = "JR 東京駅 丸の内中央口を出て駅前広場を左へ進み横断歩道を渡り徒歩約五分";

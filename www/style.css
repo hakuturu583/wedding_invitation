@@ -213,11 +213,14 @@ button.link { border: none; padding: 4px 6px; color: var(--muted); text-decorati
 .orientation { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .orientation-label { font-size: 0.85rem; color: var(--muted); }
 .orient input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.orient span {
+.orient > span {
   display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
   border: 2px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 0.85rem;
 }
 .orient input:checked + span { border-color: var(--accent); background: #fbf7ee; }
+.access-designs .orient > span { gap: 6px; }
+.access-designs .swatches { margin: 0; gap: 2px; }
+.access-designs .swatches span { width: 10px; height: 10px; border-radius: 50%; }
 .orient input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .shape { display: inline-block; border: 1.5px solid currentColor; border-radius: 2px; }
 .shape.portrait { width: 12px; height: 17px; }

@@ -126,6 +126,22 @@ function renderDesigns(designs) {
     }
     box.appendChild(label);
   }
+  // 案内図だけ別のデザインにする選択肢(先頭の「招待状と同じ」は HTML 側)
+  const accessBox = $("access-designs");
+  for (const d of designs) {
+    const label = document.createElement("label");
+    label.className = "orient";
+    label.innerHTML = `<input type="radio" name="access_design"><span><span class="swatches"></span></span>`;
+    label.querySelector("input").value = d.key;
+    const body = label.querySelector("span");
+    for (const color of d.swatches.slice(0, 3)) {
+      const dot = document.createElement("span");
+      dot.style.background = color;
+      body.querySelector(".swatches").appendChild(dot);
+    }
+    body.append(d.name);
+    accessBox.appendChild(label);
+  }
 }
 
 // ------------------------------------------------------------ 状態の保存
@@ -420,6 +436,7 @@ function access() {
     steps: steps(),
     note: form.elements.access_note.value.trim(),
     orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
+    design: form.querySelector("input[name=access_design]:checked")?.value || "",
   };
 }
 
@@ -429,6 +446,8 @@ function fillAccess(a) {
   form.elements.access_note.value = value.note || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
   form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
+  const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
+  (design || form.querySelector("input[name=access_design]")).checked = true;
   setMapPhoto(value.map_photo);
   $("routes").innerHTML = "";
   (value.routes || []).forEach((r) => addRoute(r));

@@ -382,3 +382,21 @@ fn card_layouts() {
     let doc = assert_print_ready(&build_pdf(&o, Doc::Card).unwrap());
     assert_eq!(assert_images_cmyk(&doc, doc.get_pages()[&1]), 0);
 }
+
+#[test]
+fn access_map_has_its_own_design() {
+    // 招待状(sakura)とは別に、案内図だけ 7 種類のどれでも選べる
+    for orientation in ["portrait", "landscape"] {
+        for d in &designs::DESIGNS {
+            let mut o = access_order(true, 4);
+            o.access.orientation = orientation.into();
+            o.access.design = d.key.into();
+            let pdf = build_pdf(&o, Doc::Access).unwrap();
+            assert_print_ready(&pdf);
+        }
+    }
+    // 知らないデザインは招待状と同じに戻す
+    let mut o = access_order(false, 0);
+    o.access.design = "unknown".into();
+    assert_eq!(o.validated().unwrap().access.design, "");
+}

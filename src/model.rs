@@ -397,6 +397,8 @@ pub struct Access {
     pub note: String,
     /// "portrait"(縦 100×148mm)または "landscape"(横 148×100mm)
     pub orientation: String,
+    /// 案内図のデザイン(空なら招待状と同じ)
+    pub design: String,
 }
 
 impl Default for Access {
@@ -425,6 +427,7 @@ impl Default for Access {
             steps: Vec::new(),
             note: String::new(),
             orientation: PORTRAIT.into(),
+            design: String::new(),
         }
     }
 }
@@ -467,6 +470,11 @@ impl Access {
                 PORTRAIT
             }
             .into(),
+            design: if crate::designs::find(&self.design).is_some() {
+                self.design.clone()
+            } else {
+                String::new()
+            },
         }
     }
 

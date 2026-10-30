@@ -5,7 +5,7 @@
 //! 横向き(148×100mm)では見出しを詰め、地図と交通手段を左右に並べる。
 
 use crate::canvas::{Canvas, Cmyk, Page, Path, MM};
-use crate::designs::{self, divider, fill_background, Design};
+use crate::designs::{self, divider, Design};
 use crate::fonts::{self, FontId};
 use crate::layout::{bleed_page, draw_crop_marks, BLEED, MARK_AREA};
 use crate::model::{Access, Event, Options, ACCESS_MODES};
@@ -349,29 +349,33 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
     }
 }
 
-/// 背景・枠・タイトル・会場。本文を始める y を返す(横向きは見出しを詰める).
+/// 背景・飾り・タイトル・会場。本文を始める y を返す(横向きは見出しを詰める).
 fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f32 {
     let (w, h) = postcard_size(access);
     let compact = access.is_landscape();
     let content_w = w - 2.0 * MARGIN;
+    // 招待状と同じ背景と飾り。塗り足しの外にはみ出さないよう切り抜く
     c.save();
     c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
-    fill_background(c, d, w, h, BLEED);
-    c.set_stroke(d.accent);
-    c.set_line_width(0.4);
-    c.rect(4.5 * MM, 4.5 * MM, w - 9.0 * MM, h - 9.0 * MM, true, false);
+    (d.draw_card)(c, d, w, h, BLEED);
     c.restore();
 
     let k = if compact { 0.8 } else { 1.0 };
-    c.set_fill(d.accent);
+    // 帯のあるデザインは帯の上に紙白の抜き文字でタイトルを置く
+    let on_band = d.title_on_band;
+    c.set_fill(if on_band { Cmyk::PAPER } else { d.accent });
     c.set_font(FontId::Script, 22.0 * k);
-    c.draw_centred(w / 2.0, h - 15.5 * MM * k, "Access");
-    c.set_fill(d.text);
+    c.draw_centred(w / 2.0, h - if on_band { 12.0 } else { 15.5 } * MM * k, "Access");
+    c.set_fill(if on_band { Cmyk::PAPER } else { d.text });
     c.set_font(MINCHO, 8.0 * k.max(0.9));
-    c.draw_centred(w / 2.0, h - 21.0 * MM * k, &access.title);
-    divider(c, w / 2.0, h - 24.0 * MM * k, 24.0 * MM, d.accent);
+    c.draw_centred(w / 2.0, h - if on_band { 18.5 } else { 21.0 } * MM * k, &access.title);
+    let mut y = if on_band {
+        h - designs::MODERN_BAND - 3.0 * MM
+    } else {
+        divider(c, w / 2.0, h - 24.0 * MM * k, 24.0 * MM, d.accent);
+        h - 26.5 * MM * k
+    };
     c.set_fill(d.text);
-    let mut y = h - 26.5 * MM * k;
     let name_size = 9.0 * k.max(0.92);
     if !event.venue_name.is_empty() {
         c.set_font(MINCHO, name_size);
@@ -488,11 +492,16 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
     }
 }
 
+/// 下端の余白。デザインの下の飾り(水引・草花など)に本文が重ならないようにする.
+fn foot(d: &Design) -> f32 {
+    (d.bottom_margin - 4.0 * MM).max(MARGIN)
+}
+
 fn draw_note(c: &mut Canvas, lines: &[String], d: &Design) {
     c.set_fill(d.text);
     c.set_font(MINCHO, NOTE_SIZE);
     let lh = NOTE_SIZE * 1.6;
-    let mut y = MARGIN + lines.len() as f32 * lh;
+    let mut y = foot(d) + lines.len() as f32 * lh;
     for line in lines {
         c.draw_string(MARGIN, y - lh + NOTE_SIZE * 0.42, line);
         y -= lh;
@@ -533,7 +542,12 @@ fn draw_map(c: &mut Canvas, access: &Access, d: &Design, x: f32, y: f32, w: f32,
 
 /// 案内図のページ(1 枚、または表裏 2 枚).
 pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
-    let d = designs::get(design);
+    // 案内図のデザインが選ばれていなければ招待状と同じ
+    let d = designs::get(if access.design.is_empty() {
+        design
+    } else {
+        &access.design
+    });
     let (w, _) = postcard_size(access);
     let landscape = access.is_landscape();
     let max_cols = if landscape { 4 } else { 3 };
@@ -546,7 +560,7 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         wrap(&access.note, MINCHO, NOTE_SIZE, content_w)
     };
     let note_h = note_lines.len() as f32 * NOTE_SIZE * 1.6;
-    let bottom = MARGIN + if note_h > 0.0 { note_h + 2.0 * MM } else { 0.0 };
+    let bottom = foot(d) + if note_h > 0.0 { note_h + 2.0 * MM } else { 0.0 };
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
     //   地図あり: 左に地図、右に交通手段 / 地図なし: 左に交通手段、右に道順写真
     let steps_on_front = !two_sided && !access.steps.is_empty();
@@ -623,9 +637,9 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     }
     let back = page(access, options, d, "(裏)", |c| {
         let y = draw_header(c, event, access, d);
-        let (grid, s) = choose_grid(access, content_w, y - MARGIN, max_cols);
+        let (grid, s) = choose_grid(access, content_w, y - foot(d), max_cols);
         // 余白が残るときは上下の中央に寄せる
-        let spare = (y - MARGIN - steps_height(access, content_w, &grid, s)).max(0.0);
+        let spare = (y - foot(d) - steps_height(access, content_w, &grid, s)).max(0.0);
         draw_steps(
             c,
             access,
