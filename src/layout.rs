@@ -6,7 +6,8 @@
 use crate::canvas::{Canvas, Cmyk, Page, MM};
 use crate::designs::{self, divider, Design};
 use crate::fonts::{self, FontId};
-use crate::model::{format_time, Event, Guest, Options};
+use crate::model::{format_time, CardStyle, Event, Guest, Options};
+use crate::photos;
 use crate::typeset::{draw_vertical, fit_size, to_vertical, vertical_length, wrap};
 
 /// A6 縦(洋形 2 号封筒に封入)
@@ -142,54 +143,74 @@ fn details_layout(event: &Event, size: f32, max_w: f32) -> DetailsLayout {
     }
 }
 
-fn card_blocks(event: &Event, guest: &Guest, s: f32, text_w: f32) -> Vec<Block> {
-    let body = 7.2 * s;
-    let names: Vec<String> = [&event.groom_name, &event.bride_name]
+/// カードに流し込む内容.
+#[derive(Clone, Copy, PartialEq)]
+enum Part {
+    /// 宛名・本文・差出日・名前・日時・会場・返信のお願い(横書き)
+    Full,
+    /// 日時・会場・返信のお願いだけ(縦書きレイアウトの下段)
+    DetailsOnly,
+}
+
+fn rsvp_text(event: &Event) -> String {
+    format!(
+        "お手数ではございますが　ご都合のほどを{}までに\n同封のはがきにてお知らせくださいますようお願い申し上げます",
+        event.rsvp_text()
+    )
+}
+
+fn names(event: &Event) -> Vec<String> {
+    [&event.groom_name, &event.bride_name]
         .into_iter()
         .filter(|n| !n.is_empty())
         .cloned()
-        .collect();
-    let mut blocks = vec![
-        Block::Text {
-            lines: vec![guest.card_line()],
-            size: 10.5 * s,
-            leading: 1.4,
-        },
-        Block::Gap(5.0 * MM * s),
-        Block::Text {
-            lines: wrap(&event.rendered_message(), MINCHO, body, text_w),
-            size: body,
-            leading: 1.85,
-        },
-        Block::Gap(3.0 * MM * s),
-        Block::Text {
-            lines: vec![event.rendered_date_line()],
-            size: body,
-            leading: 1.6,
-        },
-        Block::Gap(1.5 * MM * s),
-        Block::Text {
-            lines: names,
-            size: 9.5 * s,
-            leading: 1.6,
-        },
-        Block::Gap(3.0 * MM * s),
+        .collect()
+}
+
+fn card_blocks(event: &Event, guest: &Guest, s: f32, text_w: f32, part: Part) -> Vec<Block> {
+    let body = 7.2 * s;
+    let mut blocks = Vec::new();
+    if part == Part::Full {
+        blocks.extend([
+            Block::Text {
+                lines: vec![guest.card_line()],
+                size: 10.5 * s,
+                leading: 1.4,
+            },
+            Block::Gap(5.0 * MM * s),
+            Block::Text {
+                lines: wrap(&event.rendered_message(), MINCHO, body, text_w),
+                size: body,
+                leading: 1.85,
+            },
+            Block::Gap(3.0 * MM * s),
+            Block::Text {
+                lines: vec![event.rendered_date_line()],
+                size: body,
+                leading: 1.6,
+            },
+            Block::Gap(1.5 * MM * s),
+            Block::Text {
+                lines: names(event),
+                size: 9.5 * s,
+                leading: 1.6,
+            },
+            Block::Gap(3.0 * MM * s),
+        ]);
+    }
+    blocks.extend([
         Block::Divider(4.0 * MM * s),
         Block::Gap(3.0 * MM * s),
         Block::Details {
             size: body,
             leading: 1.75,
         },
-    ];
+    ]);
     if !event.rsvp_deadline.is_empty() {
-        let rsvp = format!(
-            "お手数ではございますが　ご都合のほどを{}までに\n同封のはがきにてお知らせくださいますようお願い申し上げます",
-            event.rsvp_text()
-        );
         let size = 6.2 * s;
         blocks.push(Block::Gap(3.0 * MM * s));
         blocks.push(Block::Text {
-            lines: wrap(&rsvp, MINCHO, size, text_w),
+            lines: wrap(&rsvp_text(event), MINCHO, size, text_w),
             size,
             leading: 1.7,
         });
@@ -212,45 +233,30 @@ fn block_height(b: &Block, event: &Event, max_w: f32) -> f32 {
     }
 }
 
+fn blocks_height(blocks: &[Block], event: &Event, max_w: f32) -> f32 {
+    blocks.iter().map(|b| block_height(b, event, max_w)).sum()
+}
+
 /// 行の高さ lh の中で文字を上下中央に置くベースライン.
 fn baseline(top: f32, lh: f32, size: f32) -> f32 {
     top - lh + (lh - size) / 2.0 + size * 0.12
 }
 
-fn draw_card(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design) {
-    let (w, h) = CARD_SIZE;
-    // 装飾は塗り足しの外にはみ出さないよう切り抜く
-    c.save();
-    c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
-    (d.draw_card)(c, d, w, h, BLEED);
-    c.restore();
-
-    // タイトル
-    c.set_font(FontId::Script, 26.0);
-    let top = if d.title_on_band {
-        c.set_fill(Cmyk::PAPER); // 紙白の抜き文字
-        c.draw_centred(w / 2.0, h - 16.0 * MM, d.title);
-        h - 30.0 * MM
-    } else {
-        c.set_fill(d.accent);
-        c.draw_centred(w / 2.0, h - 21.0 * MM, d.title);
-        divider(c, w / 2.0, h - 26.0 * MM, 30.0 * MM, d.accent);
-        h - 32.0 * MM
-    };
+/// 収まるまで文字を縮めて(min_s まで)、top〜bottom の間に横書きで流し込む.
+#[allow(clippy::too_many_arguments)]
+fn draw_flow(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design, part: Part, top: f32, bottom: f32, min_s: f32) {
+    let (w, _) = CARD_SIZE;
     let text_w = w - 26.0 * MM;
-    let avail = top - d.bottom_margin;
-
-    // 収まるまで文字を縮小
+    let avail = top - bottom;
     let mut s = 1.0;
-    let (blocks, heights) = loop {
-        let blocks = card_blocks(event, guest, s, text_w);
-        let heights: Vec<f32> = blocks.iter().map(|b| block_height(b, event, text_w)).collect();
-        if heights.iter().sum::<f32>() <= avail || s <= 0.6 {
-            break (blocks, heights);
+    let blocks = loop {
+        let blocks = card_blocks(event, guest, s, text_w, part);
+        if blocks_height(&blocks, event, text_w) <= avail || s <= min_s {
+            break blocks;
         }
         s -= 0.03;
     };
-    let used: f32 = heights.iter().sum();
+    let used = blocks_height(&blocks, event, text_w);
     let total_gap: f32 = blocks
         .iter()
         .map(|b| if let Block::Gap(g) = b { *g } else { 0.0 })
@@ -296,7 +302,161 @@ fn draw_card(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design) {
     }
 }
 
-pub fn card_pages(event: &Event, guests: &[Guest], design: &str, options: &Options) -> Vec<Page> {
+/// 「Wedding Invitation」と飾り罫。本文を始める y を返す.
+fn draw_title(c: &mut Canvas, d: &Design, baseline_y: f32, size: f32, on_band: bool) -> f32 {
+    let (w, _) = CARD_SIZE;
+    c.set_font(FontId::Script, size);
+    if on_band {
+        c.set_fill(Cmyk::PAPER); // 紙白の抜き文字
+        c.draw_centred(w / 2.0, baseline_y, d.title);
+        baseline_y - 14.0 * MM
+    } else {
+        c.set_fill(d.accent);
+        c.draw_centred(w / 2.0, baseline_y, d.title);
+        divider(c, w / 2.0, baseline_y - 5.0 * MM, 30.0 * MM, d.accent);
+        baseline_y - 11.0 * MM
+    }
+}
+
+// ------------------------------------------------------------------ 縦書き
+
+/// 縦書きの 1 列.
+struct Column {
+    text: String,
+    size: f32,
+    /// 列の下端に揃える(新郎新婦の名前)
+    bottom: bool,
+    /// この列の前に空ける幅(em)
+    space_before: f32,
+}
+
+/// 縦の長さ max_len(pt)に収まるよう 1 行を複数の列に分ける.
+fn split_vertical(text: &str, size: f32, max_len: f32) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for ch in text.chars() {
+        let mut next = cur.clone();
+        next.push(ch);
+        if !cur.is_empty() && vertical_length(&next, 0.0) * size > max_len {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push(ch);
+    }
+    if !cur.is_empty() || out.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+fn vertical_columns(event: &Event, guest: &Guest, s: f32, max_len: f32) -> Vec<Column> {
+    let body = 7.2 * s;
+    let mut cols = Vec::new();
+    let mut push = |text: &str, size: f32, bottom: bool, space_before: f32| {
+        for (i, t) in split_vertical(&to_vertical(text), size, max_len)
+            .into_iter()
+            .enumerate()
+        {
+            cols.push(Column {
+                text: t,
+                size,
+                bottom,
+                space_before: if i == 0 { space_before } else { 0.0 },
+            });
+        }
+    };
+    push(&guest.card_line(), 10.5 * s, false, 0.0);
+    for (i, line) in event.rendered_message().lines().enumerate() {
+        push(line, body, false, if i == 0 { 1.4 } else { 0.0 });
+    }
+    push(&event.rendered_date_line(), body, false, 1.0);
+    for (i, name) in names(event).iter().enumerate() {
+        push(name, 9.5 * s, true, if i == 0 { 0.8 } else { 0.0 });
+    }
+    cols
+}
+
+/// 列の幅(行送り).
+fn column_pitch(col: &Column) -> f32 {
+    col.size * 1.75 + col.space_before * col.size
+}
+
+fn draw_vertical_card(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design, top: f32) {
+    let (w, _) = CARD_SIZE;
+    let text_w = w - 26.0 * MM;
+    // 下段(日時・会場・返信のお願い)の高さを先に決める
+    let details_h = blocks_height(
+        &card_blocks(event, guest, 0.9, text_w, Part::DetailsOnly),
+        event,
+        text_w,
+    );
+    let details_top = d.bottom_margin + details_h;
+    let col_top = top;
+    let col_bottom = details_top + 2.0 * MM;
+    let max_len = (col_top - col_bottom).max(20.0 * MM);
+
+    // 1 行が 1 列に収まり(途中で列を分けない)、全体の幅が収まるまで縮める
+    let lines = vertical_columns(event, guest, 1.0, f32::MAX).len();
+    let mut s = 1.0;
+    let cols = loop {
+        let cols = vertical_columns(event, guest, s, max_len);
+        let width: f32 = cols.iter().map(column_pitch).sum();
+        if (width <= text_w && cols.len() <= lines) || s <= 0.6 {
+            break cols;
+        }
+        s -= 0.03;
+    };
+    let width: f32 = cols.iter().map(column_pitch).sum();
+    // 右から左へ。全体を左右の中央に置く
+    let mut x = w / 2.0 + width / 2.0;
+    c.set_fill(d.text);
+    for col in &cols {
+        x -= col.space_before * col.size;
+        let cx = x - col.size * 0.875;
+        let len = vertical_length(&col.text, 0.0) * col.size;
+        let start = if col.bottom { col_bottom + len } else { col_top };
+        draw_vertical(c, &col.text, cx, start, MINCHO, col.size, 0.0);
+        x -= col.size * 1.75;
+    }
+    draw_flow(c, event, guest, d, Part::DetailsOnly, details_top, d.bottom_margin, 0.6);
+}
+
+// ------------------------------------------------------------------ カード
+
+fn draw_card(c: &mut Canvas, event: &Event, guest: &Guest, d: &Design, style: &CardStyle) {
+    let (w, h) = CARD_SIZE;
+    // 装飾は塗り足しの外にはみ出さないよう切り抜く
+    c.save();
+    c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
+    (d.draw_card)(c, d, w, h, BLEED);
+    c.restore();
+
+    let has_photo = style.layout == "photo" && photos::has(&style.photo);
+    if has_photo {
+        // 上部に写真、その下にタイトルと本文
+        let (px, ph) = (9.0 * MM, 36.0 * MM);
+        let photo_top = h - 9.0 * MM;
+        crate::access::draw_cover(c, &style.photo, px, photo_top - ph, w - 2.0 * px, ph);
+        c.set_stroke(d.accent);
+        c.set_line_width(0.5);
+        c.rect(px, photo_top - ph, w - 2.0 * px, ph, true, false);
+        let top = draw_title(c, d, photo_top - ph - 6.5 * MM, 17.0, false) + 2.5 * MM;
+        // 本文が長いと文字を小さくして収める(本文を短くすると大きくなる)
+        draw_flow(c, event, guest, d, Part::Full, top, d.bottom_margin.min(12.0 * MM), 0.5);
+        return;
+    }
+    let top = if d.title_on_band {
+        draw_title(c, d, h - 16.0 * MM, 26.0, true)
+    } else {
+        draw_title(c, d, h - 21.0 * MM, 26.0, false)
+    };
+    if style.layout == "vertical" {
+        draw_vertical_card(c, event, guest, d, top);
+    } else {
+        draw_flow(c, event, guest, d, Part::Full, top, d.bottom_margin, 0.6);
+    }
+}
+
+pub fn card_pages(event: &Event, guests: &[Guest], design: &str, style: &CardStyle, options: &Options) -> Vec<Page> {
     let d = designs::get(design);
     let (w, h) = CARD_SIZE;
     guests
@@ -304,15 +464,16 @@ pub fn card_pages(event: &Event, guests: &[Guest], design: &str, options: &Optio
         .enumerate()
         .map(|(i, guest)| {
             let mut c = bleed_page(w, h, options.crop_marks);
-            draw_card(&mut c, event, guest, d);
+            draw_card(&mut c, event, guest, d, style);
             if options.crop_marks {
                 draw_crop_marks(&mut c, w, h, BLEED, MARK_AREA - 2.0 * MM);
                 // トンボ外の余白に管理用の情報を入れる
                 c.set_fill(Cmyk::BLACK);
                 c.set_font(MINCHO, 5.0);
                 let slug = format!(
-                    "招待状 {} 105×148mm 塗り足し3mm CMYK  No.{} {} {}",
+                    "招待状 {} {} 105×148mm 塗り足し3mm CMYK  No.{} {} {}",
                     d.name,
+                    style.label(),
                     i + 1,
                     guest.name,
                     guest.honorific_or_default()

@@ -31,6 +31,7 @@ let previewTimer = null;
 // 案内図
 let accessInfo = { access: { title: "", routes: [], steps: [] }, modes: [], max_routes: 8, max_steps: 6 };
 let mapPhotoId = "";
+let cardPhotoId = "";
 const photoUrls = new Map(); // 写真 ID -> 画面表示用の data URL
 const STEP_EDGE = 1200; // 道順の写真の長辺(px)
 const PREVIEW_EDGE = 640; // プレビュー用の長辺(px)
@@ -53,13 +54,52 @@ async function boot() {
   maxGuests = wasm.maxGuests();
   accessInfo = JSON.parse(wasm.accessDefaultsJson());
   renderDesigns(JSON.parse(wasm.designsJson()));
+  renderLayouts(accessInfo.card_layouts || []);
   const saved = load();
-  await restorePhotos(saved?.access);
+  await restorePhotos(saved);
   fill(saved);
   bindEvents();
   refreshGuestSelect(guests());
   updatePreview();
   $("boot").classList.add("hidden");
+}
+
+// レイアウトの見本(ページの中の文字の並び)
+const LAYOUT_ICONS = {
+  horizontal: '<rect x="1" y="1" width="32" height="46" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+    [12, 17, 21, 25, 29, 35, 39].map((y) => `<line x1="9" y1="${y}" x2="25" y2="${y}" stroke="currentColor"/>`).join(""),
+  vertical: '<rect x="1" y="1" width="32" height="46" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+    [26, 22, 18, 14, 10].map((x) => `<line x1="${x}" y1="8" x2="${x}" y2="28" stroke="currentColor"/>`).join("") +
+    [35, 39].map((y) => `<line x1="9" y1="${y}" x2="25" y2="${y}" stroke="currentColor"/>`).join(""),
+  photo: '<rect x="1" y="1" width="32" height="46" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+    '<rect x="5" y="5" width="24" height="13" fill="currentColor" opacity="0.45"/>' +
+    [24, 28, 32, 36, 40].map((y) => `<line x1="9" y1="${y}" x2="25" y2="${y}" stroke="currentColor"/>`).join(""),
+};
+
+function renderLayouts(layouts) {
+  const box = $("layouts");
+  for (const [i, l] of layouts.entries()) {
+    const label = document.createElement("label");
+    label.className = "layout-card";
+    label.innerHTML = `<input type="radio" name="card_layout"><span class="body">
+      <svg viewBox="0 0 34 48" aria-hidden="true">${LAYOUT_ICONS[l.key] || ""}</svg><span></span></span>`;
+    const input = label.querySelector("input");
+    input.value = l.key;
+    input.checked = i === 0;
+    label.querySelector(".body > span").textContent = l.label;
+    box.appendChild(label);
+  }
+}
+
+function cardLayout() {
+  return form.querySelector("input[name=card_layout]:checked")?.value || "horizontal";
+}
+
+function setCardPhoto(id) {
+  cardPhotoId = id || "";
+  setThumb($("card-photo-thumb"), cardPhotoId, "二人の写真");
+  $("card-photo-remove").hidden = !cardPhotoId;
+  $("card-photo-slot").hidden = cardLayout() !== "photo";
 }
 
 function renderDesigns(designs) {
@@ -228,8 +268,9 @@ function forgetPhoto(id) {
   dbRun("readwrite", (s) => s.delete(id));
 }
 
-async function restorePhotos(access) {
-  const ids = [access?.map_photo, ...(access?.steps || []).map((s) => s.photo)].filter(Boolean);
+async function restorePhotos(state) {
+  const access = state?.access;
+  const ids = [state?.card?.photo, access?.map_photo, ...(access?.steps || []).map((s) => s.photo)].filter(Boolean);
   for (const id of ids) {
     const rec = await dbRun("readonly", (s) => s.get(id));
     if (!rec?.blob) continue;
@@ -426,6 +467,7 @@ function order() {
       envelope_back: form.elements.envelope_back.checked,
     },
     access: access(),
+    card: { layout: cardLayout(), photo: cardPhotoId },
   };
 }
 
@@ -455,6 +497,10 @@ function fill(state) {
   rows.innerHTML = "";
   list.forEach((g) => addGuest(g));
   fillAccess(state?.access);
+  const layout = state?.card?.layout;
+  const radio = layout && form.querySelector(`input[name=card_layout][value="${CSS.escape(layout)}"]`);
+  if (radio) radio.checked = true;
+  setCardPhoto(state?.card?.photo);
 }
 
 // ------------------------------------------------------------ プレビュー・出力
@@ -593,6 +639,7 @@ async function importXlsx(file) {
     if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
     // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残す
     imported.access = { ...imported.access, map_photo: mapPhotoId, steps: steps() };
+    imported.card = { ...imported.card, photo: cardPhotoId };
     fill(imported);
     if (!imported.guests.length) {
       rows.innerHTML = "";
@@ -634,6 +681,26 @@ function bindEvents() {
     } catch (err) {
       showError(`画像を読み込めませんでした: ${err.message || err}`);
     }
+  });
+  $("layouts").addEventListener("change", () => setCardPhoto(cardPhotoId));
+  $("card-photo-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, wasm.maxPhotoEdge(), true);
+      forgetPhoto(cardPhotoId);
+      setCardPhoto(id);
+      changed();
+    } catch (err) {
+      showError(`写真を読み込めませんでした: ${err.message || err}`);
+    }
+  });
+  $("card-photo-remove").addEventListener("click", () => {
+    forgetPhoto(cardPhotoId);
+    setCardPhoto("");
+    changed();
   });
   $("map-remove").addEventListener("click", () => {
     forgetPhoto(mapPhotoId);

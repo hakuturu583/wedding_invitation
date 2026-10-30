@@ -54,6 +54,7 @@ fn main() {
             ],
             options: Options::default(),
             access: access.clone(),
+            ..Order::default()
         };
         for (doc, name) in [
             (Doc::Card, "card"),
@@ -105,6 +106,32 @@ fn main() {
             build_pdf(&order, Doc::Access).unwrap(),
         )
         .unwrap();
+    }
+    // 招待状のレイアウト違い(横書き / 縦書き / 写真入り)
+    photos::add("couple", 1200, 800, &photos::demo_rgba(1200, 800, 3), String::new()).unwrap();
+    for layout in ["horizontal", "vertical", "photo"] {
+        for d in ["classic", "modern"] {
+            let order = Order {
+                design: d.into(),
+                guests: vec![Guest::new(
+                    "山田 太郎",
+                    "1500001",
+                    "東京都渋谷区神宮前1-23-45",
+                    "",
+                    "花子",
+                )],
+                card: wedding_invitation::model::CardStyle {
+                    layout: layout.into(),
+                    photo: "couple".into(),
+                },
+                ..Order::default()
+            };
+            std::fs::write(
+                format!("{out}/card_layout_{layout}_{d}.pdf"),
+                build_pdf(&order, Doc::Card).unwrap(),
+            )
+            .unwrap();
+        }
     }
     std::fs::write(format!("{out}/template.xlsx"), wedding_invitation::xlsx::template()).unwrap();
     println!("{out} に書き出しました");

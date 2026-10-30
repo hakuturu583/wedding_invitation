@@ -278,3 +278,16 @@ table.songs { width: 100%; border-collapse: collapse; min-width: 760px; }
 .add-row { display: flex; gap: 6px; }
 .add-row button { padding: 4px 10px; flex: none; }
 .music .error:empty { display: none; }
+
+.layout-title { margin: 18px 0 10px; }
+.layouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.layout-card input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.layout-card .body {
+  display: flex; align-items: center; gap: 10px; cursor: pointer; height: 100%;
+  border: 2px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem;
+}
+.layout-card input:checked + .body { border-color: var(--accent); background: #fbf7ee; }
+.layout-card input:focus-visible + .body { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout-card svg { flex: none; width: 34px; height: 48px; color: var(--accent); }
+.card-photo { margin-top: 12px; }
+.card-photo .hint { margin: 6px 0 0; max-width: 34em; }

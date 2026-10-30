@@ -479,6 +479,49 @@ impl Access {
     }
 }
 
+/// 招待状カードのレイアウト(デザインの色・飾りとは別に選ぶ).
+pub const CARD_LAYOUTS: [(&str, &str); 3] = [("horizontal", "横書き"), ("vertical", "縦書き"), ("photo", "写真入り")];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CardStyle {
+    /// CARD_LAYOUTS のキー
+    pub layout: String,
+    /// 写真入りレイアウトの写真(photos の ID)
+    pub photo: String,
+}
+
+impl Default for CardStyle {
+    fn default() -> Self {
+        CardStyle {
+            layout: CARD_LAYOUTS[0].0.into(),
+            photo: String::new(),
+        }
+    }
+}
+
+impl CardStyle {
+    pub fn cleaned(self) -> CardStyle {
+        let layout = if CARD_LAYOUTS.iter().any(|(k, _)| *k == self.layout) {
+            self.layout
+        } else {
+            CARD_LAYOUTS[0].0.into()
+        };
+        CardStyle {
+            layout,
+            photo: clean(&self.photo, 64),
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        CARD_LAYOUTS
+            .iter()
+            .find(|(k, _)| *k == self.layout)
+            .map(|(_, l)| *l)
+            .unwrap_or(CARD_LAYOUTS[0].1)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Order {
@@ -487,6 +530,7 @@ pub struct Order {
     pub guests: Vec<Guest>,
     pub options: Options,
     pub access: Access,
+    pub card: CardStyle,
 }
 
 impl Default for Order {
@@ -497,6 +541,7 @@ impl Default for Order {
             guests: Vec::new(),
             options: Options::default(),
             access: Access::default(),
+            card: CardStyle::default(),
         }
     }
 }
@@ -547,6 +592,7 @@ impl Order {
             guests,
             options: self.options,
             access: self.access.cleaned(),
+            card: self.card.cleaned(),
         })
     }
 }

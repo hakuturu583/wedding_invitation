@@ -187,7 +187,7 @@ fn draw_contain(c: &mut Canvas, id: &str, x: f32, y: f32, w: f32, h: f32) -> Opt
 }
 
 /// 写真で枠を埋める(はみ出す部分は切り取る).
-fn draw_cover(c: &mut Canvas, id: &str, x: f32, y: f32, w: f32, h: f32) -> bool {
+pub(crate) fn draw_cover(c: &mut Canvas, id: &str, x: f32, y: f32, w: f32, h: f32) -> bool {
     let Some(p) = photos::get(id) else { return false };
     let scale = (w / p.width as f32).max(h / p.height as f32);
     let (iw, ih) = (p.width as f32 * scale, p.height as f32 * scale);
