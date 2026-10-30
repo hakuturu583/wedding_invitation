@@ -629,11 +629,112 @@ fn yuki_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
     yukiwa(c, 22.0 * MM, 19.0 * MM, 2.0 * MM, None, Some(SILVER), 30.0);
 }
 
+// ------------------------------------------------------------------ ホワイト
+
+/// 線画の色(あたたかみのあるグレー)
+const LINE_GRAY: Cmyk = Cmyk(0.10, 0.12, 0.18, 0.38);
+const LINE_GRAY_LIGHT: Cmyk = Cmyk(0.05, 0.06, 0.10, 0.22);
+const WHITE_TITLE: Cmyk = Cmyk(0.15, 0.18, 0.25, 0.55);
+
+/// 線画の葉(原点から +x 方向)。内側は紙の白で塗り、後ろの線を隠す.
+fn line_leaf(c: &mut Canvas, length: f32, width: f32) {
+    let mut p = Path::new();
+    p.move_to(0.0, 0.0)
+        .curve_to(length * 0.3, width, length * 0.75, width * 0.9, length, 0.0)
+        .curve_to(length * 0.75, -width * 0.9, length * 0.3, -width, 0.0, 0.0)
+        .close();
+    c.set_fill(Cmyk::PAPER);
+    c.draw_path(p, true, true);
+    // 葉脈
+    let mut p = Path::new();
+    p.move_to(length * 0.08, 0.0).curve_to(
+        length * 0.4,
+        width * 0.08,
+        length * 0.7,
+        width * 0.05,
+        length * 0.92,
+        0.0,
+    );
+    c.draw_path(p, true, false);
+}
+
+/// 線画の花(丸みのある 6 枚の花びらを二重に重ねる)。内側は紙の白で塗る.
+fn line_flower(c: &mut Canvas, x: f32, y: f32, r: f32, rotation: f32) {
+    c.save();
+    c.translate(x, y);
+    c.rotate(rotation);
+    c.set_fill(Cmyk::PAPER);
+    for (scale, offset) in [(1.0, 0.0), (0.62, 30.0)] {
+        let rr = r * scale;
+        for i in 0..6 {
+            c.save();
+            c.rotate(offset + i as f32 * 60.0);
+            let mut p = Path::new();
+            p.move_to(0.0, rr * 0.18)
+                .curve_to(-rr * 0.42, rr * 0.45, -rr * 0.32, rr * 0.98, 0.0, rr)
+                .curve_to(rr * 0.32, rr * 0.98, rr * 0.42, rr * 0.45, 0.0, rr * 0.18)
+                .close();
+            c.draw_path(p, true, true);
+            c.restore();
+        }
+    }
+    c.circle(0.0, 0.0, r * 0.14, true, true);
+    c.restore();
+}
+
+/// 線画の枝(茎に輪郭だけの葉).
+fn line_sprig(c: &mut Canvas, x: f32, y: f32, angle: f32, length: f32, n: usize) {
+    c.save();
+    c.translate(x, y);
+    c.rotate(angle);
+    let mut p = Path::new();
+    p.move_to(0.0, 0.0)
+        .curve_to(length * 0.35, length * 0.05, length * 0.7, length * 0.04, length, 0.0);
+    c.draw_path(p, true, false);
+    for i in 0..n {
+        let t = (i + 1) as f32 / (n + 1) as f32;
+        let side = if i % 2 == 0 { 1.0 } else { -1.0 };
+        c.save();
+        c.translate(length * t, length * 0.045 * (std::f32::consts::PI * t).sin());
+        c.rotate(side * 50.0);
+        line_leaf(c, length * 0.26 * (1.05 - 0.35 * t), length * 0.07);
+        c.restore();
+    }
+    c.restore();
+}
+
+/// 角の線画の花束(花 2 輪と枝).
+fn white_corner(c: &mut Canvas, x: f32, y: f32, sx: f32, sy: f32, s: f32) {
+    c.save();
+    c.translate(x, y);
+    c.scale(sx, sy);
+    c.set_stroke(LINE_GRAY_LIGHT);
+    c.set_line_width(0.35);
+    line_sprig(c, 2.0 * s, 2.0 * s, 8.0, 30.0 * s, 6);
+    line_sprig(c, 2.0 * s, 2.0 * s, 72.0, 26.0 * s, 5);
+    c.set_stroke(LINE_GRAY);
+    c.set_line_width(0.4);
+    line_flower(c, 6.5 * s, 6.5 * s, 5.2 * s, 10.0);
+    line_flower(c, 15.0 * s, 4.0 * s, 3.2 * s, 35.0);
+    line_flower(c, 4.0 * s, 15.0 * s, 2.6 * s, 50.0);
+    c.restore();
+}
+
+fn white_card(c: &mut Canvas, _d: &Design, w: f32, h: f32, _bleed: f32) {
+    // 背景は紙の白のまま(インキを乗せない)。枠は付けず、角の線画の花だけにする
+    white_corner(c, 4.5 * MM, h - 4.5 * MM, 1.0, -1.0, MM * 0.95);
+    white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.95);
+}
+
+fn white_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
+    white_corner(c, 7.0 * MM, 7.0 * MM, 1.0, 1.0, MM * 0.75);
+}
+
 // ------------------------------------------------------------------ 一覧
 
 pub const DEFAULT_DESIGN: &str = "classic";
 
-pub static DESIGNS: [Design; 6] = [
+pub static DESIGNS: [Design; 7] = [
     Design {
         key: "classic",
         name: "クラシック",
@@ -718,6 +819,20 @@ pub static DESIGNS: [Design; 6] = [
         title_on_band: false,
         bottom_margin: 18.0 * MM,
     },
+    Design {
+        key: "white",
+        name: "ホワイト",
+        description: "紙の白を活かし、角にグレーの線画の花をあしらった清楚なデザイン",
+        background: None,
+        accent: WHITE_TITLE,
+        sub: LINE_GRAY_LIGHT,
+        text: Cmyk(0.0, 0.0, 0.0, 0.82),
+        title: "Wedding Invitation",
+        draw_card: white_card,
+        draw_envelope: white_envelope,
+        title_on_band: false,
+        bottom_margin: 16.0 * MM,
+    },
 ];
 
 pub fn find(key: &str) -> Option<&'static Design> {
@@ -736,6 +851,9 @@ mod tests {
     fn total_ink_is_within_limit() {
         for d in &DESIGNS {
             for col in d.colors().into_iter().chain([
+                LINE_GRAY,
+                LINE_GRAY_LIGHT,
+                WHITE_TITLE,
                 LEAF,
                 LEAF_LIGHT,
                 STEM,

@@ -69,7 +69,7 @@ fn ensure_fonts() -> Result<(), String> {
 
 pub fn pages(order: &Order, doc: Doc) -> Vec<canvas::Page> {
     match doc {
-        Doc::Card => layout::card_pages(&order.event, &order.guests, &order.design, &order.options),
+        Doc::Card => layout::card_pages(&order.event, &order.guests, &order.design, &order.card, &order.options),
         Doc::Envelope => layout::envelope_pages(&order.event, &order.guests, &order.design, &order.options),
         Doc::Access => access::access_pages(&order.event, &order.access, &order.design, &order.options),
     }
@@ -204,6 +204,7 @@ pub fn access_defaults_json() -> String {
         .map(|(k, l)| serde_json::json!({"key": k, "label": l}))
         .collect();
     serde_json::json!({
+        "card_layouts": model::CARD_LAYOUTS.iter().map(|(k, l)| serde_json::json!({"key": k, "label": l})).collect::<Vec<_>>(),
         "access": model::Access::default(),
         "modes": modes,
         "max_routes": model::MAX_ROUTES,
@@ -232,6 +233,7 @@ pub fn export_xlsx(order_json: &str) -> Result<Vec<u8>, JsError> {
     let order = Order {
         event: order.event.cleaned(),
         access: order.access.cleaned(),
+        card: order.card.cleaned(),
         guests: order
             .guests
             .into_iter()

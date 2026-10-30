@@ -37,6 +37,18 @@
     <section class="panel">
       <h2><span class="step">1</span>デザイン</h2>
       <div class="designs" id="designs"></div>
+      <h3 class="sub-title layout-title">招待状のレイアウト</h3>
+      <div class="layouts" id="layouts" role="radiogroup" aria-label="招待状のレイアウト"></div>
+      <div class="photo-slot card-photo" id="card-photo-slot" hidden>
+        <div class="thumb" id="card-photo-thumb"><span>二人の写真</span></div>
+        <div>
+          <div class="photo-actions">
+            <label class="button-like">写真を選ぶ<input type="file" id="card-photo-file" accept="image/*" hidden></label>
+            <button type="button" id="card-photo-remove" class="link">削除</button>
+          </div>
+          <p class="hint">カード上部に横長(約 87×36mm)で入ります。写真を選ばないと横書きと同じになります。本文を短めにすると文字が大きくなります。</p>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -77,6 +89,13 @@
         <label class="orient">
           <input type="radio" name="access_orientation" value="landscape">
           <span><i class="shape landscape"></i>横 148×100mm</span>
+        </label>
+      </div>
+      <div class="orientation access-designs" id="access-designs" role="radiogroup" aria-label="案内図のデザイン">
+        <span class="orientation-label">デザイン</span>
+        <label class="orient">
+          <input type="radio" name="access_design" value="" checked>
+          <span>招待状と同じ</span>
         </label>
       </div>
 

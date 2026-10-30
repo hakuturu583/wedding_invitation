@@ -25,6 +25,7 @@ fn order(design: &str, options: Options) -> Order {
         ],
         options,
         access: Access::default(),
+        card: Default::default(),
     }
 }
 
@@ -356,4 +357,46 @@ fn access_map_landscape() {
             approx(&rect(&doc, page, b"TrimBox"), &[off, off, off + h, off + w]);
         }
     }
+}
+
+#[test]
+fn card_layouts() {
+    photos::add("couple", 600, 400, &photos::demo_rgba(600, 400, 2), String::new()).unwrap();
+    for d in &designs::DESIGNS {
+        for (layout, images) in [("horizontal", 0), ("vertical", 0), ("photo", 1)] {
+            let mut o = order(d.key, Options::default());
+            o.card = wedding_invitation::model::CardStyle {
+                layout: layout.into(),
+                photo: "couple".into(),
+            };
+            let pdf = build_pdf(&o, Doc::Card).unwrap();
+            let doc = assert_print_ready(&pdf);
+            let pages = doc.get_pages();
+            assert_eq!(pages.len(), 2);
+            assert_eq!(assert_images_cmyk(&doc, pages[&1]), images, "{} {layout}", d.key);
+        }
+    }
+    // 写真を選んでいない写真入りは横書きと同じ(写真なし)
+    let mut o = order("classic", Options::default());
+    o.card.layout = "photo".into();
+    let doc = assert_print_ready(&build_pdf(&o, Doc::Card).unwrap());
+    assert_eq!(assert_images_cmyk(&doc, doc.get_pages()[&1]), 0);
+}
+
+#[test]
+fn access_map_has_its_own_design() {
+    // 招待状(sakura)とは別に、案内図だけ 7 種類のどれでも選べる
+    for orientation in ["portrait", "landscape"] {
+        for d in &designs::DESIGNS {
+            let mut o = access_order(true, 4);
+            o.access.orientation = orientation.into();
+            o.access.design = d.key.into();
+            let pdf = build_pdf(&o, Doc::Access).unwrap();
+            assert_print_ready(&pdf);
+        }
+    }
+    // 知らないデザインは招待状と同じに戻す
+    let mut o = access_order(false, 0);
+    o.access.design = "unknown".into();
+    assert_eq!(o.validated().unwrap().access.design, "");
 }

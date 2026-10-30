@@ -14,7 +14,8 @@ use serde::Serialize;
 
 use crate::designs;
 use crate::model::{
-    Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, LANDSCAPE, MAX_GUESTS, MAX_ROUTES, PORTRAIT,
+    Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, CARD_LAYOUTS, LANDSCAPE, MAX_GUESTS,
+    MAX_ROUTES, PORTRAIT,
 };
 use crate::roster::{self, ONEW_SHEET};
 use crate::zip;
@@ -31,7 +32,11 @@ enum Kind {
     Flag,
     /// 縦/横
     Orientation,
+    /// 横書き/縦書き/写真入り
+    CardLayout,
     Design,
+    /// 招待状と同じ / デザイン名
+    AccessDesign,
 }
 
 #[derive(Clone, Copy)]
@@ -42,6 +47,8 @@ enum Slot {
     CropMarks,
     EnvelopeBack,
     AccessOrientation,
+    AccessDesign,
+    CardLayout,
 }
 
 struct SettingRow {
@@ -57,6 +64,12 @@ const SETTINGS: &[SettingRow] = &[
         kind: Kind::Design,
         slot: Slot::Design,
         help: "プルダウンから選択",
+    },
+    SettingRow {
+        label: "招待状のレイアウト",
+        kind: Kind::CardLayout,
+        slot: Slot::CardLayout,
+        help: "本文の組み方。写真入りの写真は画面で選びます",
     },
     SettingRow {
         label: "新郎のお名前",
@@ -155,6 +168,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "差出人の裏面ページを付けるか",
     },
     SettingRow {
+        label: "案内図のデザイン",
+        kind: Kind::AccessDesign,
+        slot: Slot::AccessDesign,
+        help: "案内図だけ別のデザインにするとき",
+    },
+    SettingRow {
         label: "案内図の向き",
         kind: Kind::Orientation,
         slot: Slot::AccessOrientation,
@@ -234,6 +253,9 @@ const SHEET_HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes
 
 const FROZEN_HEADER: &str = r#"<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/>"#;
 
+/// 「案内図のデザイン」で招待状と同じにする値
+const SAME_AS_CARD: &str = "招待状と同じ";
+
 fn settings_value(order: &Order, row: &SettingRow) -> String {
     match row.slot {
         Slot::Design => designs::get(&order.design).name.to_string(),
@@ -242,6 +264,11 @@ fn settings_value(order: &Order, row: &SettingRow) -> String {
         Slot::CropMarks => (if order.options.crop_marks { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::EnvelopeBack => (if order.options.envelope_back { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::AccessOrientation => (if order.access.is_landscape() { "横" } else { "縦" }).into(),
+        Slot::AccessDesign => match designs::find(&order.access.design) {
+            Some(d) => d.name.into(),
+            None => SAME_AS_CARD.into(),
+        },
+        Slot::CardLayout => order.card.label().into(),
     }
 }
 
@@ -274,16 +301,32 @@ fn settings_sheet(order: &Order) -> String {
                 let names: Vec<_> = designs::DESIGNS.iter().map(|d| d.name).collect();
                 format!("{}: {}", row.help, names.join(" / "))
             }
+            Kind::AccessDesign => {
+                let names: Vec<_> = designs::DESIGNS.iter().map(|d| d.name).collect();
+                format!("{}: {SAME_AS_CARD} / {}", row.help, names.join(" / "))
+            }
             Kind::Flag => format!("{}(「{FLAG_ON}」か「{FLAG_OFF}」)", row.help),
             Kind::Orientation => format!("{}(「縦」か「横」)", row.help),
+            Kind::CardLayout => format!(
+                "{}: {}",
+                row.help,
+                CARD_LAYOUTS.iter().map(|(_, l)| *l).collect::<Vec<_>>().join(" / ")
+            ),
             _ => row.help.to_string(),
         };
         cell(&mut x, 2, r, S_HELP, &help);
         x.push_str("</row>");
         let list = match row.kind {
             Kind::Design => Some(designs::DESIGNS.iter().map(|d| d.name).collect::<Vec<_>>().join(",")),
+            Kind::AccessDesign => Some(
+                std::iter::once(SAME_AS_CARD)
+                    .chain(designs::DESIGNS.iter().map(|d| d.name))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
             Kind::Flag => Some(format!("{FLAG_ON},{FLAG_OFF}")),
             Kind::Orientation => Some("縦,横".to_string()),
+            Kind::CardLayout => Some(CARD_LAYOUTS.iter().map(|(_, l)| *l).collect::<Vec<_>>().join(",")),
             _ => None,
         };
         if let Some(list) = list {
@@ -812,6 +855,35 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         designs::DESIGNS[0].name
                     )),
                 },
+                Slot::AccessDesign => {
+                    let t = text.trim();
+                    order.access.design = if t.is_empty() || t == SAME_AS_CARD {
+                        String::new()
+                    } else if let Some(key) = find_design(t) {
+                        key.into()
+                    } else {
+                        warnings.push(format!(
+                            "「{}」の値「{text}」が見つからないため「{SAME_AS_CARD}」にしました",
+                            setting.label
+                        ));
+                        String::new()
+                    };
+                }
+                Slot::CardLayout => {
+                    let found = CARD_LAYOUTS.iter().find(|(k, l)| {
+                        *l == text.trim()
+                            || k.eq_ignore_ascii_case(text.trim())
+                            || (!text.trim().is_empty() && l.contains(text.trim()))
+                    });
+                    match found {
+                        Some((k, _)) => order.card.layout = k.to_string(),
+                        None if text.trim().is_empty() => {}
+                        None => warnings.push(format!(
+                            "「{}」の値「{text}」が分からないため「{}」にしました",
+                            setting.label, CARD_LAYOUTS[0].1
+                        )),
+                    }
+                }
                 Slot::AccessOrientation => {
                     order.access.orientation = match text.trim() {
                         "横" | "横向き" | "landscape" => LANDSCAPE.into(),
@@ -945,9 +1017,14 @@ mod tests {
 
     fn sample_order() -> Order {
         Order {
+            card: crate::model::CardStyle {
+                layout: "vertical".into(),
+                photo: String::new(),
+            },
             access: crate::model::Access {
                 note: "送迎バスあり\n10:00 発".into(),
                 orientation: LANDSCAPE.into(),
+                design: "sakura".into(),
                 ..crate::model::Access::default()
             },
             design: "yuki".into(),
@@ -986,6 +1063,8 @@ mod tests {
         assert!(got.event.message.contains('\n'));
         assert_eq!(got.access.routes, order.access.routes, "交通手段も往復で残る");
         assert!(got.access.is_landscape(), "案内図の向きも残る");
+        assert_eq!(got.access.design, "sakura", "案内図のデザインも残る");
+        assert_eq!(got.card.layout, "vertical", "招待状のレイアウトも残る");
         assert_eq!(
             (got.access.title.as_str(), got.access.note.as_str()),
             ("ご案内図", "送迎バスあり\n10:00 発")
