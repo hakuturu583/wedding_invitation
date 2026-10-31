@@ -318,16 +318,23 @@ fn step_box(content_w: f32, grid: &Grid, s: f32) -> (f32, f32) {
     (full_w * s, full_w * 0.75 * s)
 }
 
+/// 写真の説明の幅。写真が縮んだときは、列の幅いっぱいまで右に広げてよい.
+fn caption_w(content_w: f32, grid: &Grid, s: f32) -> f32 {
+    let full = step_box(content_w, grid, 1.0).0;
+    let pw = step_box(content_w, grid, s).0;
+    (full + pw) / 2.0
+}
+
 fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
     if access.steps.is_empty() {
         return 0.0;
     }
-    let (pw, ph) = step_box(content_w, grid, s);
+    let (_, ph) = step_box(content_w, grid, s);
     let mut total = STEPS_HEADER;
     for row in access.steps.chunks(grid.cols) {
         let lines = row
             .iter()
-            .map(|st| caption_lines(&st.caption, pw).len())
+            .map(|st| caption_lines(&st.caption, caption_w(content_w, grid, s)).len())
             .max()
             .unwrap_or(0);
         total += ph + 1.2 * MM + lines as f32 * CAPTION_SIZE * CAPTION_LEADING + STEP_GAP_Y;
@@ -353,10 +360,11 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
         let height = steps_height(access, content_w, &grid, s);
         if height <= avail {
             let pw = step_box(content_w, &grid, s).0;
+            let cw = caption_w(content_w, &grid, s);
             let whole = access
                 .steps
                 .iter()
-                .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
+                .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, cw).len() <= CAPTION_LINES);
             let balanced = cols == 1 || n <= cols || n % cols != 1;
             // 説明が省略されないものを最優先。最後の行が 1 枚だけになる並べ方は、写真が 1 割以上大きいときだけ選ぶ
             let score = if balanced { pw } else { pw * 0.9 };
@@ -459,12 +467,15 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
     let lh = CAPTION_SIZE * CAPTION_LEADING;
     let mut number = 0;
     for row in access.steps.chunks(grid.cols) {
-        let row_w = pw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
+        // 列は縮める前の幅で並べ、写真は列の中央に置く(説明は列の右端まで使える)
+        let fw = step_box(content_w, grid, 1.0).0;
+        let row_w = fw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
         let left = x0 + (content_w - row_w) / 2.0;
         let mut caption_h: f32 = 0.0;
         for (i, step) in row.iter().enumerate() {
             number += 1;
-            let x = left + i as f32 * (pw + STEP_GAP_X);
+            let col_x = left + i as f32 * (fw + STEP_GAP_X);
+            let x = col_x + (fw - pw) / 2.0;
             if !draw_cover(c, &step.photo, x, y - ph, pw, ph) {
                 c.set_fill(PLACEHOLDER);
                 c.rect(x, y - ph, pw, ph, false, true);
@@ -481,7 +492,7 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
             // 同じ行の次の写真への矢印(行の折り返しは番号で順番がわかるので矢印を付けない)
             if i + 1 < row.len() {
                 let a = 1.3 * MM;
-                let (ax, ay) = (x + pw + STEP_GAP_X / 2.0, y - ph / 2.0);
+                let (ax, ay) = (col_x + fw + STEP_GAP_X / 2.0, y - ph / 2.0);
                 let mut p = Path::new();
                 p.move_to(ax - a * 0.5, ay + a)
                     .line_to(ax + a * 0.7, ay)
@@ -491,7 +502,7 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
                 c.draw_path(p, false, true);
             }
             // 説明
-            let lines = caption_lines(&step.caption, pw);
+            let lines = caption_lines(&step.caption, col_x + fw - x);
             c.set_fill(d.text);
             c.set_font(MINCHO, CAPTION_SIZE);
             for (j, line) in lines.iter().enumerate() {
@@ -599,11 +610,12 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         let rest = (y - bottom - routes_h - SECTION_GAP).max(0.0);
         let (grid, s) = choose_grid(access, content_w, rest, max_cols);
         let pw = step_box(content_w, &grid, s).0;
+        let cw = caption_w(content_w, &grid, s);
         pw < MIN_FRONT_PHOTO
             || access
                 .steps
                 .iter()
-                .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() > CAPTION_LINES)
+                .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, cw).len() > CAPTION_LINES)
     };
     let two_sided = is_two_sided(access) || crowded;
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
