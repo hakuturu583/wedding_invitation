@@ -226,6 +226,8 @@ const NOTE_SIZE: f32 = 6.3;
 struct RouteStyle {
     k: f32,
     max_lines: usize,
+    /// 名前の列の幅(縮小前)
+    label: f32,
 }
 
 impl RouteStyle {
@@ -236,11 +238,12 @@ impl RouteStyle {
         ICON * self.k
     }
     fn label_w(&self) -> f32 {
-        LABEL_W * self.k
+        self.label * self.k
     }
 }
 
-type RouteRows<'a> = Vec<(&'a str, Vec<String>)>;
+/// (種類, 表示名, 行)
+type RouteRows<'a> = Vec<(&'a str, &'a str, Vec<String>)>;
 
 fn route_lines(text: &str, w: f32, st: RouteStyle) -> Vec<String> {
     let mut lines = wrap_phrases(text, MINCHO, st.size(), w - (st.icon() + 1.5 * MM) - st.label_w());
@@ -264,16 +267,27 @@ fn fit_routes(access: &Access, w: f32, limit: f32) -> (RouteRows<'_>, RouteStyle
         let rows: RouteRows = access
             .routes
             .iter()
-            .map(|r| (r.mode.as_str(), route_lines(&r.text, w, st)))
+            .map(|r| (r.mode.as_str(), r.display_label(), route_lines(&r.text, w, st)))
             .collect();
-        let h = rows.iter().map(|(_, l)| route_row_height(l.len(), st)).sum::<f32>();
+        let h = rows.iter().map(|(_, _, l)| route_row_height(l.len(), st)).sum::<f32>();
         (rows, st, h)
     };
+    // 名前の列は、いちばん長い表示名が入る幅(既定の幅より狭くはしない)
+    let label = access
+        .routes
+        .iter()
+        .map(|r| fonts::text_width(MINCHO, r.display_label(), ROUTE_SIZE) + 2.0 * MM)
+        .fold(LABEL_W, f32::max);
     let scales = (0..=8).map(|i| RouteStyle {
         k: 1.0 - 0.05 * i as f32,
         max_lines: usize::MAX,
+        label,
     });
-    let shorter = [2, 1].map(|max_lines| RouteStyle { k: 0.6, max_lines });
+    let shorter = [2, 1].map(|max_lines| RouteStyle {
+        k: 0.6,
+        max_lines,
+        label,
+    });
     let mut last = None;
     for st in scales.chain(shorter) {
         let result = layout(st);
@@ -413,9 +427,9 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f3
 }
 
 /// 交通手段を x0 から描く。描いた後の y を返す.
-fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d: &Design, x0: f32, mut y: f32) -> f32 {
+fn draw_routes(c: &mut Canvas, routes: &RouteRows, st: RouteStyle, d: &Design, x0: f32, mut y: f32) -> f32 {
     let (size, icon) = (st.size(), st.icon());
-    for (mode, lines) in routes {
+    for (mode, label, lines) in routes {
         let row_h = route_row_height(lines.len(), st);
         let icon_cy = y - row_h / 2.0;
         draw_icon(c, mode, x0 + icon / 2.0, icon_cy, icon, d.accent, Cmyk::PAPER);
@@ -425,7 +439,7 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d
         let base = |i: usize| text_top - lh * (i as f32 + 1.0) + (lh - size) / 2.0 + size * 0.12;
         c.set_font(MINCHO, size);
         c.set_fill(d.accent);
-        c.draw_string(x, base(0), mode_label(mode));
+        c.draw_string(x, base(0), label);
         c.set_fill(d.text);
         for (i, line) in lines.iter().enumerate() {
             c.draw_string(x + st.label_w(), base(i), line);
@@ -781,6 +795,7 @@ mod tests {
                 .map(|(k, _)| AccessRoute {
                     mode: k.to_string(),
                     text: text.into(),
+                    ..AccessRoute::default()
                 })
                 .collect(),
             ..Access::default()

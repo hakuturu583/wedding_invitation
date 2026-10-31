@@ -373,6 +373,19 @@ pub struct AccessRoute {
     /// ACCESS_MODES のキー
     pub mode: String,
     pub text: String,
+    /// 表示名(空なら種類の名前。例: 電車 → 「南海電鉄」)
+    pub label: String,
+}
+
+impl AccessRoute {
+    /// 案内図に出す名前.
+    pub fn display_label(&self) -> &str {
+        if self.label.is_empty() {
+            crate::access::mode_label(&self.mode)
+        } else {
+            &self.label
+        }
+    }
 }
 
 /// 道順写真の見出しの既定値
@@ -429,18 +442,22 @@ impl Default for Access {
                 AccessRoute {
                     mode: "train".into(),
                     text: "JR 東京駅 丸の内中央口より徒歩 5 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "subway".into(),
                     text: "地下鉄 大手町駅 D1 出口より徒歩 3 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "taxi".into(),
                     text: "東京駅 丸の内口のタクシー乗り場より約 5 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "parking".into(),
                     text: "ホテル地下駐車場 100 台(披露宴ご出席の方は 3 時間無料)".into(),
+                    ..AccessRoute::default()
                 },
             ],
             steps: Vec::new(),
@@ -469,6 +486,7 @@ impl Access {
                     "train".into()
                 },
                 text: clean(&r.text, MAX_LEN),
+                label: clean(&r.label, 8),
             })
             .filter(|r| !r.text.is_empty())
             .take(MAX_ROUTES)

@@ -383,6 +383,7 @@ fn table_sheet(rows: &[Vec<String>]) -> String {
     x.push_str("<cols>");
     let width = |h: &str| match h {
         "説明" => 64,
+        "表示名" => 14,
         "種類" => 12,
         "住所1" => 30,
         "住所2" => 30,
@@ -489,14 +490,14 @@ pub fn write_workbook(order: &Order) -> Vec<u8> {
 
 /// 案内図の交通手段(種類はプルダウン).
 fn access_sheet(access: &Access) -> String {
-    let mut rows = vec![vec!["種類".to_string(), "説明".to_string()]];
+    let mut rows = vec![vec!["種類".to_string(), "説明".to_string(), "表示名".to_string()]];
     for r in &access.routes {
         let label = ACCESS_MODES
             .iter()
             .find(|(k, _)| *k == r.mode)
             .map(|(_, l)| *l)
             .unwrap_or("");
-        rows.push(vec![label.to_string(), r.text.clone()]);
+        rows.push(vec![label.to_string(), r.text.clone(), r.label.clone()]);
     }
     let labels: Vec<&str> = ACCESS_MODES.iter().map(|(_, l)| *l).collect();
     let validation = format!(
@@ -553,6 +554,8 @@ fn read_routes(rows: &[Vec<String>], warnings: &mut Vec<String>) -> Option<Vec<A
     let h = rows.iter().position(|r| r.iter().any(|c| c.trim() == "種類"))?;
     let col = |name: &str| rows[h].iter().position(|c| c.trim() == name);
     let (mode_col, text_col) = (col("種類")?, col("説明")?);
+    // 「表示名」は後から足した列なので、なくてもよい
+    let label_col = col("表示名");
     let mut routes = Vec::new();
     for row in &rows[h + 1..] {
         let get = |i: usize| row.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
@@ -571,6 +574,7 @@ fn read_routes(rows: &[Vec<String>], warnings: &mut Vec<String>) -> Option<Vec<A
         routes.push(AccessRoute {
             mode: mode.into(),
             text,
+            label: label_col.map(get).unwrap_or_default(),
         });
     }
     Some(routes)
@@ -1201,12 +1205,19 @@ mod tests {
                 map_photo: "map".into(),
                 routes: vec![
                     AccessRoute {
+                        mode: "train".into(),
+                        text: "南海なんば駅 3F 北改札口からホテル直結".into(),
+                        label: "南海電鉄".into(),
+                    },
+                    AccessRoute {
                         mode: "subway".into(),
                         text: "御堂筋線 なんば駅から地下通路で徒歩約 4 分".into(),
+                        ..AccessRoute::default()
                     },
                     AccessRoute {
                         mode: "taxi".into(),
                         text: "ホテルロビー 6F にお越しください".into(),
+                        ..AccessRoute::default()
                     },
                 ],
                 steps: vec![step("s1", "北改札を出て赤丸のホテルロゴへ"), step("s2", "")],

@@ -347,6 +347,16 @@ function addRoute(route = {}) {
     select.appendChild(opt);
   }
   select.value = route.mode || "train";
+  const label = document.createElement("input");
+  label.className = "route-label";
+  label.value = route.label || "";
+  label.maxLength = 8;
+  label.title = "案内図に出す名前(空なら種類の名前)";
+  const updateLabelHint = () => {
+    label.placeholder = select.selectedOptions[0]?.textContent || "";
+  };
+  select.addEventListener("change", updateLabelHint);
+  updateLabelHint();
   const input = document.createElement("input");
   input.value = route.text || "";
   input.placeholder = "例: JR 〇〇駅 中央口より徒歩 5 分";
@@ -359,14 +369,18 @@ function addRoute(route = {}) {
     row.remove();
     changed();
   });
-  row.append(select, input, remove);
+  row.append(select, label, input, remove);
   box.appendChild(row);
   return row;
 }
 
 function routes() {
   return [...$("routes").children]
-    .map((row) => ({ mode: row.querySelector("select").value, text: row.querySelector("input").value.trim() }))
+    .map((row) => ({
+      mode: row.querySelector("select").value,
+      label: row.querySelector(".route-label").value.trim(),
+      text: row.querySelector("input:not(.route-label)").value.trim(),
+    }))
     .filter((r) => r.text);
 }
 
@@ -726,7 +740,7 @@ function bindEvents() {
   });
   $("export-xlsx").addEventListener("click", exportXlsx);
   $("add-route").addEventListener("click", () => {
-    addRoute()?.querySelector("input").focus();
+    addRoute()?.querySelector("input:not(.route-label)").focus();
   });
   $("map-file").addEventListener("change", async (e) => {
     const file = e.target.files[0];
