@@ -732,9 +732,9 @@ fn draw_steps_page(
     let y = draw_header(c, event, access, d);
     const PAD: f32 = 2.5 * MM;
     // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
-    // 「＊」(または「*」)で始まる行は注記として小さめの文字にする。(字下げ, 文字の大きさ, 行) の並び
+    // 「＊」(または「*」)で始まる行は注記として小さめの文字で中央にそろえる。(字下げ, 文字の大きさ, 中央, 行) の並び
     let text_w = content_w - 2.0 * PAD;
-    let mut lines: Vec<(f32, f32, String)> = Vec::new();
+    let mut lines: Vec<(f32, f32, bool, String)> = Vec::new();
     for para in note.lines().filter(|l| !l.trim().is_empty()) {
         let body = para.trim_start_matches('　');
         let level = (para.chars().count() - body.chars().count()) as f32 * NOTE_SIZE;
@@ -747,14 +747,15 @@ fn draw_steps_page(
             ("", NOTE_SIZE, body)
         };
         let hang = fonts::text_width(MINCHO, bullet, size);
+        let center = bullet == "＊";
         for (i, line) in wrap_phrases(body, MINCHO, size, text_w - level - hang)
             .into_iter()
             .enumerate()
         {
             if i == 0 {
-                lines.push((level, size, format!("{bullet}{line}")));
+                lines.push((level, size, center, format!("{bullet}{line}")));
             } else {
-                lines.push((level + hang, size, line));
+                lines.push((level + hang, size, center, line));
             }
         }
     }
@@ -762,7 +763,7 @@ fn draw_steps_page(
     let box_h = if lines.is_empty() {
         0.0
     } else {
-        lines.iter().map(|(_, size, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD
+        lines.iter().map(|(_, size, _, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD
     };
     if box_h > 0.0 {
         c.set_stroke(d.sub);
@@ -770,10 +771,15 @@ fn draw_steps_page(
         c.rect(MARGIN, foot(d), content_w, box_h, true, false);
         c.set_fill(d.text);
         let mut ly = foot(d) + box_h - PAD;
-        for (indent, size, line) in &lines {
+        for (indent, size, center, line) in &lines {
             let lh = line_h(*size);
             c.set_font(MINCHO, *size);
-            c.draw_string(MARGIN + PAD + indent, ly - lh + size * 0.42 + (lh - size) / 2.0, line);
+            let base = ly - lh + size * 0.42 + (lh - size) / 2.0;
+            if *center {
+                c.draw_centred(MARGIN + content_w / 2.0, base, line);
+            } else {
+                c.draw_string(MARGIN + PAD + indent, base, line);
+            }
             ly -= lh;
         }
     }
