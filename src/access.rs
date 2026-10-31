@@ -635,7 +635,9 @@ fn single_pages(event: &Event, access: &Access, design: &str, options: &Options)
                 .iter()
                 .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, cw).len() > CAPTION_LINES)
     };
-    let two_sided = is_two_sided(access) || crowded;
+    // 道順の案内文があるときは、道順写真を案内文と一緒に別のページに置く(表には案内文の場所がない)
+    let steps_with_note = !access.steps.is_empty() && !access.steps_note.is_empty();
+    let two_sided = is_two_sided(access) || crowded || steps_with_note;
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
     //   地図あり: 左に地図、右に交通手段 / 地図なし: 左に交通手段、右に道順写真
     let steps_on_front = !two_sided && !access.steps.is_empty();

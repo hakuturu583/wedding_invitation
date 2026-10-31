@@ -381,6 +381,12 @@ fn access_map_is_postcard_with_cmyk_photos() {
     let pages = doc.get_pages();
     assert_eq!(pages.len(), 3);
     assert_eq!(assert_images_cmyk(&doc, pages[&3]), 1, "館内図");
+    // 道順の案内文があれば、写真が表に収まる場合でも道順は別のページに(案内文を落とさない)
+    let mut o = access_order(false, 2);
+    o.access.steps_note = "・地下通路で徒歩約 10 分".into();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    assert_eq!(assert_print_ready(&pdf).get_pages().len(), 2);
+    assert!(build_preview(&o, Doc::Access, 0).unwrap().contains("地下通路"));
     // 交通手段がなければ道順写真 6 枚だけで 1 ページ
     let mut o = access_order(false, 6);
     o.access.routes.clear();
