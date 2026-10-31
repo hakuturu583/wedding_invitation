@@ -432,6 +432,16 @@ function steps(box = $("steps")) {
     .filter((s) => s.photo || s.caption);
 }
 
+// 今の道順写真に、Excel から読んだ説明を順番どおりに当てはめる(説明がなければ今のまま)
+function mergeCaptions(current, imported) {
+  if (!imported?.length) return current;
+  const n = Math.max(current.length, imported.length);
+  return Array.from({ length: n }, (_, i) => ({
+    photo: current[i]?.photo || "",
+    caption: imported[i]?.caption ?? current[i]?.caption ?? "",
+  }));
+}
+
 function access() {
   return {
     title: form.elements.access_title.value.trim() || "ご案内図",
@@ -667,8 +677,13 @@ async function importXlsx(file) {
       return;
     }
     if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
-    // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残す
-    imported.access = { ...imported.access, map_photo: mapPhotoId, steps: steps(), car_steps: steps($("car-steps")) };
+    // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残し、説明だけ Excel のものにする
+    imported.access = {
+      ...imported.access,
+      map_photo: mapPhotoId,
+      steps: mergeCaptions(steps(), imported.access?.steps),
+      car_steps: mergeCaptions(steps($("car-steps")), imported.access?.car_steps),
+    };
     imported.card = { ...imported.card, photo: cardPhotoId };
     fill(imported);
     if (!imported.guests.length) {

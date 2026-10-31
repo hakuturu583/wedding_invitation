@@ -14,8 +14,8 @@ use serde::Serialize;
 
 use crate::designs;
 use crate::model::{
-    Access, AccessRoute, Date, Event, Guest, Options, Order, ACCESS_MODES, CARD_LAYOUTS, LANDSCAPE, MAX_GUESTS,
-    MAX_ROUTES, PORTRAIT,
+    Access, AccessRoute, Date, Event, Guest, Options, Order, RouteStep, ACCESS_MODES, CARD_LAYOUTS, LANDSCAPE,
+    MAX_GUESTS, MAX_ROUTES, MAX_STEPS, PORTRAIT,
 };
 use crate::roster::{self, ONEW_SHEET};
 use crate::zip;
@@ -206,6 +206,9 @@ const SETTINGS: &[SettingRow] = &[
 ];
 
 pub const ACCESS_SHEET: &str = "アクセス";
+pub const STEPS_SHEET: &str = "道順";
+/// 「道順」シートの道順の種類(駅から / お車)
+const STEP_GROUPS: [&str; 2] = ["駅から", "お車"];
 
 const FLAG_ON: &str = "する";
 const FLAG_OFF: &str = "しない";
@@ -468,6 +471,7 @@ pub fn write_workbook(order: &Order) -> Vec<u8> {
         (SETTINGS_SHEET, settings_sheet(order)),
         (ONEW_SHEET, table_sheet(&roster::onew_table(&order.guests))),
         (ACCESS_SHEET, access_sheet(&order.access)),
+        (STEPS_SHEET, steps_sheet(&order.access)),
     ])
 }
 
@@ -489,6 +493,47 @@ fn access_sheet(access: &Access) -> String {
         esc(&labels.join(","))
     );
     table_sheet(&rows).replacen("<pageMargins", &validation, 1)
+}
+
+/// 道順写真の説明(写真そのものは画面で追加する).
+fn steps_sheet(access: &Access) -> String {
+    let mut rows = vec![vec!["道順".to_string(), "番号".to_string(), "説明".to_string()]];
+    for (group, steps) in STEP_GROUPS.iter().zip([&access.steps, &access.car_steps]) {
+        for (i, st) in steps.iter().enumerate() {
+            rows.push(vec![group.to_string(), (i + 1).to_string(), st.caption.clone()]);
+        }
+    }
+    let validation = format!(
+        r#"<dataValidations count="1"><dataValidation type="list" allowBlank="1" showErrorMessage="1" sqref="A2:A{}"><formula1>"{}"</formula1></dataValidation></dataValidations><pageMargins"#,
+        MAX_STEPS * 2 + 1,
+        esc(&STEP_GROUPS.join(","))
+    );
+    table_sheet(&rows).replacen("<pageMargins", &validation, 1)
+}
+
+/// 「道順」シートから説明を読む(駅から, お車)。写真は空のまま.
+fn read_steps(rows: &[Vec<String>]) -> Option<(Vec<RouteStep>, Vec<RouteStep>)> {
+    let h = rows.iter().position(|r| r.iter().any(|c| c.trim() == "道順"))?;
+    let col = |name: &str| rows[h].iter().position(|c| c.trim() == name);
+    let (group_col, text_col) = (col("道順")?, col("説明")?);
+    let (mut station, mut car) = (Vec::new(), Vec::new());
+    for row in &rows[h + 1..] {
+        let get = |i: usize| row.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
+        let (group, caption) = (get(group_col), get(text_col));
+        if caption.is_empty() {
+            continue;
+        }
+        let step = RouteStep {
+            photo: String::new(),
+            caption,
+        };
+        if group.contains("車") {
+            car.push(step);
+        } else {
+            station.push(step);
+        }
+    }
+    Some((station, car))
 }
 
 /// 「アクセス」シートの表から交通手段を読む.
@@ -970,13 +1015,32 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
             )),
         }
     }
+    if let Some((_, path)) = sheets.iter().find(|(n, _)| n == STEPS_SHEET) {
+        let rows: Vec<Vec<String>> = grid_of(path)?
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|c| c.map(|c| c.text()).unwrap_or_default())
+                    .collect()
+            })
+            .collect();
+        match read_steps(&rows) {
+            Some((station, car)) => {
+                order.access.steps = station;
+                order.access.car_steps = car;
+            }
+            None => warnings.push(format!(
+                "「{STEPS_SHEET}」シートに「道順」「説明」の見出しが見つかりません"
+            )),
+        }
+    }
     order.access = order.access.cleaned();
 
     // ゲスト名簿: 「出席者名簿」(旧「ゲスト」)を優先し、なければ見出しのあるシートを探す
     let mut ordered: Vec<&(String, String)> = sheets.iter().collect();
     ordered.sort_by_key(|(name, _)| match name.as_str() {
         ONEW_SHEET | "ゲスト" => 0,
-        SETTINGS_SHEET | ACCESS_SHEET => 2,
+        SETTINGS_SHEET | ACCESS_SHEET | STEPS_SHEET => 2,
         _ => 1,
     });
     let mut found = false;
@@ -1039,6 +1103,20 @@ mod tests {
                 design: "sakura".into(),
                 steps_title: "南海なんば駅からの道順".into(),
                 car_steps_title: "お車の方".into(),
+                steps: vec![
+                    RouteStep {
+                        photo: "p1".into(),
+                        caption: "北改札を出て赤丸のホテルロゴへ".into(),
+                    },
+                    RouteStep {
+                        photo: "p2".into(),
+                        caption: "矢印先のエレベーターで 6F ロビーへ".into(),
+                    },
+                ],
+                car_steps: vec![RouteStep {
+                    photo: "p3".into(),
+                    caption: "6F ロビー直結の車寄せへ".into(),
+                }],
                 ..crate::model::Access::default()
             },
             design: "yuki".into(),
@@ -1080,6 +1158,14 @@ mod tests {
         assert_eq!(got.access.design, "sakura", "案内図のデザインも残る");
         assert_eq!(got.access.steps_title, "南海なんば駅からの道順", "道順の見出しも残る");
         assert_eq!(got.access.car_steps_title, "お車の方", "お車の道順の見出しも残る");
+        // 道順の説明は「道順」シートで残る(写真は Excel に入らない)
+        let captions = |s: &[RouteStep]| s.iter().map(|s| s.caption.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            captions(&got.access.steps),
+            ["北改札を出て赤丸のホテルロゴへ", "矢印先のエレベーターで 6F ロビーへ"]
+        );
+        assert_eq!(captions(&got.access.car_steps), ["6F ロビー直結の車寄せへ"]);
+        assert!(got.access.steps.iter().all(|s| s.photo.is_empty()));
         assert_eq!(got.card.layout, "vertical", "招待状のレイアウトも残る");
         assert_eq!(
             (got.access.title.as_str(), got.access.note.as_str()),
