@@ -10,7 +10,7 @@ use crate::fonts::{self, FontId};
 use crate::layout::{bleed_page, draw_crop_marks, BLEED, MARK_AREA};
 use crate::model::{Access, Event, Options, ACCESS_MODES};
 use crate::photos;
-use crate::typeset::wrap;
+use crate::typeset::{wrap, wrap_phrases};
 
 /// 郵便はがき(縦)
 pub const POSTCARD_SIZE: (f32, f32) = (100.0 * MM, 148.0 * MM);
@@ -243,7 +243,7 @@ impl RouteStyle {
 type RouteRows<'a> = Vec<(&'a str, Vec<String>)>;
 
 fn route_lines(text: &str, w: f32, st: RouteStyle) -> Vec<String> {
-    let mut lines = wrap(text, MINCHO, st.size(), w - (st.icon() + 1.5 * MM) - st.label_w());
+    let mut lines = wrap_phrases(text, MINCHO, st.size(), w - (st.icon() + 1.5 * MM) - st.label_w());
     if lines.len() > st.max_lines {
         lines.truncate(st.max_lines);
         if let Some(last) = lines.last_mut() {
@@ -286,7 +286,7 @@ fn fit_routes(access: &Access, w: f32, limit: f32) -> (RouteRows<'_>, RouteStyle
 }
 
 fn caption_lines(text: &str, w: f32) -> Vec<String> {
-    let mut lines = wrap(text, MINCHO, CAPTION_SIZE, w);
+    let mut lines = wrap_phrases(text, MINCHO, CAPTION_SIZE, w);
     if lines.len() > CAPTION_LINES {
         lines.truncate(CAPTION_LINES);
         if let Some(last) = lines.last_mut() {
@@ -342,7 +342,7 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
             let whole = access
                 .steps
                 .iter()
-                .all(|st| wrap(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
+                .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
             let balanced = cols == 1 || n <= cols || n % cols != 1;
             let rank = (whole, balanced, pw);
             let better = fitting.is_none_or(|(_, _, best)| {
@@ -470,29 +470,20 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
             let size = r * 1.15;
             c.set_font(MINCHO, size);
             c.draw_centred(bx, by - size * 0.36, &number.to_string());
-            // 次の写真への矢印
-            let is_last = number == access.steps.len();
-            if !is_last {
+            // 同じ行の次の写真への矢印(行の折り返しは番号で順番がわかるので矢印を付けない)
+            if i + 1 < row.len() {
                 let a = 1.3 * MM;
+                let (ax, ay) = (x + pw + STEP_GAP_X / 2.0, y - ph / 2.0);
                 let mut p = Path::new();
-                if i + 1 < row.len() {
-                    let (ax, ay) = (x + pw + STEP_GAP_X / 2.0, y - ph / 2.0);
-                    p.move_to(ax - a * 0.5, ay + a)
-                        .line_to(ax + a * 0.7, ay)
-                        .line_to(ax - a * 0.5, ay - a);
-                } else {
-                    // 行の終わりは右下に下向きの矢印
-                    let (ax, ay) = (x + pw - a * 1.2, y - ph - 0.6 * MM);
-                    p.move_to(ax - a, ay + a * 0.2)
-                        .line_to(ax + a, ay + a * 0.2)
-                        .line_to(ax, ay - a);
-                }
-                p.close();
+                p.move_to(ax - a * 0.5, ay + a)
+                    .line_to(ax + a * 0.7, ay)
+                    .line_to(ax - a * 0.5, ay - a)
+                    .close();
                 c.set_fill(d.accent);
                 c.draw_path(p, false, true);
             }
             // 説明
-            let lines = caption_lines(&step.caption, if is_last { pw } else { pw - 3.0 * MM });
+            let lines = caption_lines(&step.caption, pw);
             c.set_fill(d.text);
             c.set_font(MINCHO, CAPTION_SIZE);
             for (j, line) in lines.iter().enumerate() {
@@ -593,7 +584,7 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             || access
                 .steps
                 .iter()
-                .any(|st| wrap(&st.caption, MINCHO, CAPTION_SIZE, pw).len() > CAPTION_LINES)
+                .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() > CAPTION_LINES)
     };
     let two_sided = is_two_sided(access) || crowded;
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
