@@ -412,6 +412,8 @@ pub struct Access {
     pub car_steps: Vec<RouteStep>,
     /// もう 1 つの道順の見出し(空なら「お車でご来場の方」)
     pub car_steps_title: String,
+    /// もう 1 つの道順のページの下に添える案内(駐車場など)
+    pub car_note: String,
     /// 館内図の画像(photos の ID)。あれば別のページに大きく載せる
     pub floor_map: String,
     /// 館内図の見出し(空なら「館内図」)
@@ -448,6 +450,7 @@ impl Default for Access {
             steps_title: String::new(),
             car_steps: Vec::new(),
             car_steps_title: String::new(),
+            car_note: String::new(),
             floor_map: String::new(),
             floor_map_title: String::new(),
         }
@@ -492,6 +495,7 @@ impl Access {
             steps_title: clean(&self.steps_title, 40),
             car_steps,
             car_steps_title: clean(&self.car_steps_title, 40),
+            car_note: clean(&self.car_note, MAX_MESSAGE_LEN),
             floor_map: clean(&self.floor_map, 64),
             floor_map_title: clean(&self.floor_map_title, 40),
             orientation: if self.orientation == LANDSCAPE {

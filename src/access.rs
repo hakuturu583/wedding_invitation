@@ -670,14 +670,14 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     let mut pages = vec![front];
     if two_sided {
         pages.push(page(access, options, d, "(裏)", |c| {
-            draw_steps_page(c, event, access, d, content_w, max_cols)
+            draw_steps_page(c, event, access, d, content_w, max_cols, "")
         }));
     }
     // もう 1 つの道順(お車など)は別のページに
     if !access.car_steps.is_empty() {
         let car = access.car_route();
         pages.push(page(access, options, d, "(お車)", |c| {
-            draw_steps_page(c, event, &car, d, content_w, max_cols)
+            draw_steps_page(c, event, &car, d, content_w, max_cols, &access.car_note)
         }));
     }
     // 館内図は最後のページに大きく
@@ -693,11 +693,45 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
 }
 
 /// 見出しと道順写真だけのページ.
-fn draw_steps_page(c: &mut Canvas, event: &Event, access: &Access, d: &Design, content_w: f32, max_cols: usize) {
+/// note があれば写真の下に枠で囲んで添える(駐車場の案内など).
+fn draw_steps_page(
+    c: &mut Canvas,
+    event: &Event,
+    access: &Access,
+    d: &Design,
+    content_w: f32,
+    max_cols: usize,
+    note: &str,
+) {
     let y = draw_header(c, event, access, d);
-    let (grid, s) = choose_grid(access, content_w, y - foot(d), max_cols);
+    const PAD: f32 = 2.5 * MM;
+    let lh = NOTE_SIZE * 1.6;
+    let lines = if note.is_empty() {
+        Vec::new()
+    } else {
+        wrap_phrases(note, MINCHO, NOTE_SIZE, content_w - 2.0 * PAD)
+    };
+    let box_h = if lines.is_empty() {
+        0.0
+    } else {
+        lines.len() as f32 * lh + 2.0 * PAD
+    };
+    if box_h > 0.0 {
+        c.set_stroke(d.sub);
+        c.set_line_width(0.35);
+        c.rect(MARGIN, foot(d), content_w, box_h, true, false);
+        c.set_fill(d.text);
+        c.set_font(MINCHO, NOTE_SIZE);
+        let mut ly = foot(d) + box_h - PAD;
+        for line in &lines {
+            c.draw_string(MARGIN + PAD, ly - lh + NOTE_SIZE * 0.42 + (lh - NOTE_SIZE) / 2.0, line);
+            ly -= lh;
+        }
+    }
+    let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+    let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
     // 余白が残るときは上下の中央に寄せる
-    let spare = (y - foot(d) - steps_height(access, content_w, &grid, s)).max(0.0);
+    let spare = (y - bottom - steps_height(access, content_w, &grid, s)).max(0.0);
     draw_steps(
         c,
         access,

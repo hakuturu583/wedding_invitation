@@ -335,6 +335,15 @@ fn access_map_is_postcard_with_cmyk_photos() {
     assert_eq!(pages.len(), 4);
     assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "3 ページ目はお車の道順");
     assert_eq!(assert_images_cmyk(&doc, pages[&4]), 1, "4 ページ目は館内図");
+    // お車の案内(駐車場など)があっても、お車のページに写真と一緒に収まる
+    let mut o = access_order(true, 3);
+    o.access.car_steps = o.access.steps.clone();
+    o.access.car_note =
+        "ホテルの駐車場が満車の場合は、なんばシティの駐車場をご利用ください\n披露宴後に QR コードを受け取ると無料"
+            .into();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    assert_eq!(doc.get_pages().len(), 3);
     // 館内図だけなら道順のあとに 1 枚
     let mut o = access_order(true, 3);
     o.access.floor_map = "map".into();

@@ -198,6 +198,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "お車の道順写真(別ページ)の見出し。空なら「お車でご来場の方」。写真は画面で追加",
     },
     SettingRow {
+        label: "お車の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.car_note),
+        help: "お車の道順のページの下に枠で添える文(例: 駐車場の案内)",
+    },
+    SettingRow {
         label: "館内図の見出し",
         kind: Kind::Text,
         slot: Slot::Access(|a| &mut a.floor_map_title),
@@ -1210,6 +1216,7 @@ mod tests {
                 steps_title: "南海なんば駅からの道順".into(),
                 car_steps: vec![step("c1", "6F ロビー直結の車寄せへ")],
                 car_steps_title: "お車の方".into(),
+                car_note: "満車の場合は\nなんばシティの駐車場へ".into(),
                 floor_map: "floor".into(),
                 floor_map_title: "ホテル館内図".into(),
             },

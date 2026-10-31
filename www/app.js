@@ -462,6 +462,7 @@ function access() {
     steps_title: form.elements.steps_title.value.trim(),
     car_steps: steps($("car-steps")),
     car_steps_title: form.elements.car_steps_title.value.trim(),
+    car_note: form.elements.car_note.value.trim(),
     orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
     design: form.querySelector("input[name=access_design]:checked")?.value || "",
   };
@@ -473,6 +474,7 @@ function fillAccess(a) {
   form.elements.access_note.value = value.note || "";
   form.elements.steps_title.value = value.steps_title || "";
   form.elements.car_steps_title.value = value.car_steps_title || "";
+  form.elements.car_note.value = value.car_note || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
   form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
   const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
