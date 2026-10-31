@@ -327,8 +327,8 @@ fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
 fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> (Grid, f32) {
     const MIN_SCALE: f32 = 0.3;
     let n = access.steps.len().max(1);
-    // (並べ方, 縮小率, (説明が省略されない, 1 枚だけの行がない, 写真の幅))
-    let mut fitting: Option<(Grid, f32, (bool, bool, f32))> = None;
+    // (並べ方, 縮小率, (説明が省略されない, 評価, 写真の幅))
+    let mut fitting: Option<(Grid, f32, (bool, f32, f32))> = None;
     let mut lowest: Option<(Grid, f32)> = None; // (並べ方, 最小の高さ)
     for cols in 1..=n.min(max_cols) {
         let grid = Grid { cols };
@@ -344,10 +344,11 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
                 .iter()
                 .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
             let balanced = cols == 1 || n <= cols || n % cols != 1;
-            let rank = (whole, balanced, pw);
-            let better = fitting.is_none_or(|(_, _, best)| {
-                (rank.0, rank.1) > (best.0, best.1) || ((rank.0, rank.1) == (best.0, best.1) && pw > best.2 + 0.5 * MM)
-            });
+            // 説明が省略されないものを最優先。最後の行が 1 枚だけになる並べ方は、写真が 1 割以上大きいときだけ選ぶ
+            let score = if balanced { pw } else { pw * 0.9 };
+            let rank = (whole, score, pw);
+            let better = fitting
+                .is_none_or(|(_, _, best)| (rank.0 && !best.0) || (rank.0 == best.0 && score > best.1 + 0.5 * MM));
             if better {
                 fitting = Some((grid, s, rank));
             }

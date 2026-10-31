@@ -246,13 +246,18 @@ const STEM: Cmyk = Cmyk(0.50, 0.20, 0.55, 0.35);
 const BERRY: Cmyk = Cmyk(0.05, 0.35, 0.25, 0.05);
 
 fn botanical_card(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32) {
+    botanical(c, d, w, h, bleed, 40.0 * MM);
+}
+
+/// vine は縦に垂れる枝の長さ(案内図では見出しにかからないよう短くする).
+fn botanical(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32, vine: f32) {
     fill_background(c, d, w, h, bleed);
     // 左上と右下の角に、辺に沿わせて枝を配置(本文にかからないように)
     let ll = 8.0 * MM;
     sprig(c, -3.0 * MM, h - 4.0 * MM, -8.0, 34.0 * MM, LEAF, STEM, 6, ll);
-    sprig(c, 3.0 * MM, h + 3.0 * MM, -80.0, 40.0 * MM, LEAF_LIGHT, STEM, 6, ll);
+    sprig(c, 3.0 * MM, h + 3.0 * MM, -80.0, vine, LEAF_LIGHT, STEM, 6, ll);
     sprig(c, w + 3.0 * MM, 4.0 * MM, 172.0, 34.0 * MM, LEAF, STEM, 6, ll);
-    sprig(c, w - 3.0 * MM, -3.0 * MM, 100.0, 40.0 * MM, LEAF_LIGHT, STEM, 6, ll);
+    sprig(c, w - 3.0 * MM, -3.0 * MM, 100.0, vine, LEAF_LIGHT, STEM, 6, ll);
     c.set_fill(BERRY);
     for (x, y, r) in [
         (9.0, h / MM - 9.0, 1.3),
@@ -726,13 +731,15 @@ fn white_card(c: &mut Canvas, _d: &Design, w: f32, h: f32, _bleed: f32) {
     white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.95);
 }
 
-/// 案内図(ハガキ)の背景と飾り。写真が並ぶので、ホワイトだけ角の花を小さくする.
+/// 案内図(ハガキ)の背景と飾り。写真や見出しが並ぶので、角の飾りを控えめにするデザインがある.
 pub fn draw_access(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32) {
-    if d.key == "white" {
-        white_corner(c, 4.5 * MM, h - 4.5 * MM, 1.0, -1.0, MM * 0.75);
-        white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.75);
-    } else {
-        (d.draw_card)(c, d, w, h, bleed);
+    match d.key {
+        "white" => {
+            white_corner(c, 4.5 * MM, h - 4.5 * MM, 1.0, -1.0, MM * 0.75);
+            white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.75);
+        }
+        "botanical" => botanical(c, d, w, h, bleed, 28.0 * MM),
+        _ => (d.draw_card)(c, d, w, h, bleed),
     }
 }
 

@@ -38,6 +38,19 @@ fn main() {
         note: "送迎バス: 東京駅 八重洲口より 10:00 / 10:20 発(所要約 10 分)".into(),
         ..Access::default()
     };
+    // お車の道順(別ページ)
+    let car_captions = ["ホテル正面の車寄せへ", "ロビーを抜けて奥へ", "上層階行きエレベーターへ"];
+    let access = Access {
+        car_steps: car_captions
+            .iter()
+            .enumerate()
+            .map(|(i, c)| RouteStep {
+                photo: format!("step{}", i + 2),
+                caption: c.to_string(),
+            })
+            .collect(),
+        ..access
+    };
     for d in &designs::DESIGNS {
         let order = Order {
             design: d.key.into(),
