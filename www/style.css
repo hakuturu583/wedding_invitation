@@ -192,7 +192,7 @@ table.guests { width: 100%; border-collapse: collapse; min-width: 760px; }
 .photo-actions { display: flex; gap: 10px; align-items: center; }
 button.link { border: none; padding: 4px 6px; color: var(--muted); text-decoration: underline; }
 .routes { display: grid; gap: 8px; margin-bottom: 10px; }
-.route { display: grid; grid-template-columns: 120px 1fr auto; gap: 8px; align-items: center; }
+.route { display: grid; grid-template-columns: 120px 110px 1fr auto; gap: 8px; align-items: center; }
 .access > .button-like { display: inline-block; margin-bottom: 14px; }
 .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 10px; }
 .step-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -207,8 +207,8 @@ button.link { border: none; padding: 4px 6px; color: var(--muted); text-decorati
 .step-card textarea { font-size: 0.85rem; }
 .frame .pages { display: grid; gap: 14px; justify-items: center; }
 @media (max-width: 560px) {
-  .route { grid-template-columns: 1fr auto; }
-  .route input { grid-column: 1 / -1; grid-row: 2; }
+  .route { grid-template-columns: 1fr 1fr auto; }
+  .route input:not(.route-label) { grid-column: 1 / -1; grid-row: 2; }
 }
 
 .orientation { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }

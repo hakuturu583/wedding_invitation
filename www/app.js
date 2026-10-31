@@ -31,6 +31,7 @@ let previewTimer = null;
 // 案内図
 let accessInfo = { access: { title: "", routes: [], steps: [] }, modes: [], max_routes: 8, max_steps: 6 };
 let mapPhotoId = "";
+let floorPhotoId = "";
 let cardPhotoId = "";
 const photoUrls = new Map(); // 写真 ID -> 画面表示用の data URL
 const STEP_EDGE = 1200; // 道順の写真の長辺(px)
@@ -289,6 +290,7 @@ async function restorePhotos(state) {
   const ids = [
     state?.card?.photo,
     access?.map_photo,
+    access?.floor_map,
     ...(access?.steps || []).map((s) => s.photo),
     ...(access?.car_steps || []).map((s) => s.photo),
   ].filter(Boolean);
@@ -326,6 +328,12 @@ function setMapPhoto(id) {
   $("map-remove").hidden = !mapPhotoId;
 }
 
+function setFloorPhoto(id) {
+  floorPhotoId = id || "";
+  setThumb($("floor-thumb"), floorPhotoId, "館内図の画像");
+  $("floor-remove").hidden = !floorPhotoId;
+}
+
 function addRoute(route = {}) {
   const box = $("routes");
   if (box.children.length >= accessInfo.max_routes) return null;
@@ -339,6 +347,16 @@ function addRoute(route = {}) {
     select.appendChild(opt);
   }
   select.value = route.mode || "train";
+  const label = document.createElement("input");
+  label.className = "route-label";
+  label.value = route.label || "";
+  label.maxLength = 8;
+  label.title = "案内図に出す名前(空なら種類の名前)";
+  const updateLabelHint = () => {
+    label.placeholder = select.selectedOptions[0]?.textContent || "";
+  };
+  select.addEventListener("change", updateLabelHint);
+  updateLabelHint();
   const input = document.createElement("input");
   input.value = route.text || "";
   input.placeholder = "例: JR 〇〇駅 中央口より徒歩 5 分";
@@ -351,14 +369,18 @@ function addRoute(route = {}) {
     row.remove();
     changed();
   });
-  row.append(select, input, remove);
+  row.append(select, label, input, remove);
   box.appendChild(row);
   return row;
 }
 
 function routes() {
   return [...$("routes").children]
-    .map((row) => ({ mode: row.querySelector("select").value, text: row.querySelector("input").value.trim() }))
+    .map((row) => ({
+      mode: row.querySelector("select").value,
+      label: row.querySelector(".route-label").value.trim(),
+      text: row.querySelector("input:not(.route-label)").value.trim(),
+    }))
     .filter((r) => r.text);
 }
 
@@ -446,12 +468,17 @@ function access() {
   return {
     title: form.elements.access_title.value.trim() || "ご案内図",
     map_photo: mapPhotoId,
+    floor_map: floorPhotoId,
+    floor_map_title: form.elements.floor_map_title.value.trim(),
+    floor_note: form.elements.floor_note.value.trim(),
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
     steps_title: form.elements.steps_title.value.trim(),
+    steps_note: form.elements.steps_note.value.trim(),
     car_steps: steps($("car-steps")),
     car_steps_title: form.elements.car_steps_title.value.trim(),
+    car_note: form.elements.car_note.value.trim(),
     orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
     design: form.querySelector("input[name=access_design]:checked")?.value || "",
   };
@@ -462,12 +489,17 @@ function fillAccess(a) {
   form.elements.access_title.value = value.title || "";
   form.elements.access_note.value = value.note || "";
   form.elements.steps_title.value = value.steps_title || "";
+  form.elements.steps_note.value = value.steps_note || "";
   form.elements.car_steps_title.value = value.car_steps_title || "";
+  form.elements.car_note.value = value.car_note || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
   form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
   const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
   (design || form.querySelector("input[name=access_design]")).checked = true;
   setMapPhoto(value.map_photo);
+  setFloorPhoto(value.floor_map);
+  form.elements.floor_map_title.value = value.floor_map_title || "";
+  form.elements.floor_note.value = value.floor_note || "";
   $("routes").innerHTML = "";
   (value.routes || []).forEach((r) => addRoute(r));
   $("steps").innerHTML = "";
@@ -505,6 +537,7 @@ function order() {
     options: {
       crop_marks: form.elements.crop_marks.checked,
       envelope_back: form.elements.envelope_back.checked,
+      booklet: form.elements.booklet.checked,
     },
     access: access(),
     card: { layout: cardLayout(), photo: cardPhotoId },
@@ -529,6 +562,7 @@ function fill(state) {
   if (state?.options) {
     form.elements.crop_marks.checked = state.options.crop_marks !== false;
     form.elements.envelope_back.checked = state.options.envelope_back !== false;
+    form.elements.booklet.checked = state.options.booklet === true;
   }
   const list = state?.guests?.length ? state.guests : [
     { name: "山田 太郎", postal_code: "150-0001", address1: "東京都渋谷区神宮前1-23-45",
@@ -681,6 +715,7 @@ async function importXlsx(file) {
     imported.access = {
       ...imported.access,
       map_photo: mapPhotoId,
+      floor_map: floorPhotoId,
       steps: mergeCaptions(steps(), imported.access?.steps),
       car_steps: mergeCaptions(steps($("car-steps")), imported.access?.car_steps),
     };
@@ -711,7 +746,7 @@ function bindEvents() {
   });
   $("export-xlsx").addEventListener("click", exportXlsx);
   $("add-route").addEventListener("click", () => {
-    addRoute()?.querySelector("input").focus();
+    addRoute()?.querySelector("input:not(.route-label)").focus();
   });
   $("map-file").addEventListener("change", async (e) => {
     const file = e.target.files[0];
@@ -726,6 +761,25 @@ function bindEvents() {
     } catch (err) {
       showError(`画像を読み込めませんでした: ${err.message || err}`);
     }
+  });
+  $("floor-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, wasm.maxPhotoEdge(), true);
+      forgetPhoto(floorPhotoId);
+      setFloorPhoto(id);
+      changed();
+    } catch (err) {
+      showError(`画像を読み込めませんでした: ${err.message || err}`);
+    }
+  });
+  $("floor-remove").addEventListener("click", () => {
+    forgetPhoto(floorPhotoId);
+    setFloorPhoto("");
+    changed();
   });
   $("layouts").addEventListener("change", () => setCardPhoto(cardPhotoId));
   $("card-photo-file").addEventListener("change", async (e) => {

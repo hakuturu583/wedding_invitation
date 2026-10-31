@@ -119,6 +119,29 @@
       <p class="hint">写真は撮った順に並べてください。番号と矢印が付きます(最大 6 枚)。</p>
       <div id="steps" class="steps"></div>
       <label class="button-like">＋ 写真を追加<input type="file" id="step-files" accept="image/*" multiple hidden></label>
+      <div class="grid">
+        <label class="wide">道順の案内(写真の下に枠で表示)
+          <textarea name="steps_note" rows="2" placeholder="例: ・当日は改装工事のため、ルートが変わる場合がございます"></textarea>
+        </label>
+      </div>
+
+      <h3>館内図(別ページ)</h3>
+      <div class="grid">
+        <label class="wide">見出し<input name="floor_map_title" placeholder="館内図"></label>
+      </div>
+      <div class="photo-slot" id="floor-slot">
+        <div class="thumb" id="floor-thumb"><span>館内図の画像</span></div>
+        <div class="photo-actions">
+          <label class="button-like">画像を選ぶ<input type="file" id="floor-file" accept="image/*" hidden></label>
+          <button type="button" id="floor-remove" class="link">削除</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <label class="wide">館内図の案内(図の下に枠で表示)
+          <textarea name="floor_note" rows="3" placeholder="例: ・当日は改装工事のため、館内の通路が変わる場合がございます"></textarea>
+        </label>
+      </div>
 
       <h3>お車の道順(別ページ)</h3>
       <div class="grid">
@@ -127,6 +150,11 @@
       <p class="hint">車寄せからの行き方など、もう 1 つの道順を写真で別のページに並べます(最大 6 枚)。</p>
       <div id="car-steps" class="steps"></div>
       <label class="button-like">＋ 写真を追加<input type="file" id="car-step-files" accept="image/*" multiple hidden></label>
+      <div class="grid">
+        <label class="wide">お車の案内(写真の下に枠で表示)
+          <textarea name="car_note" rows="3" placeholder="例: 駐車場&#10;　・満車の場合は、近くの駐車場をご利用ください(行頭の全角空白で 1 字下げ、「＊」で始まる行は小さな注記を中央に)"></textarea>
+        </label>
+      </div>
 
       <div class="grid">
         <label class="wide">補足
@@ -164,6 +192,7 @@
       <div class="options">
         <label><input type="checkbox" name="crop_marks" checked> トンボ(トリムマーク)を付ける</label>
         <label><input type="checkbox" name="envelope_back" checked> 封筒の裏面(差出人)を付ける</label>
+        <label><input type="checkbox" name="booklet"> 案内図を中綴じ冊子用に 1 面 2 ページずつ並べる</label>
       </div>
       <div class="actions">
         <button type="button" class="primary" data-generate="zip">まとめてダウンロード (ZIP)</button>

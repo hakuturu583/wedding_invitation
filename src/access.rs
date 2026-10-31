@@ -7,7 +7,7 @@
 use crate::canvas::{Canvas, Cmyk, Page, Path, MM};
 use crate::designs::{self, divider, Design};
 use crate::fonts::{self, FontId};
-use crate::layout::{bleed_page, draw_crop_marks, BLEED, MARK_AREA};
+use crate::layout::{bleed_page, draw_crop_marks, saddle_stitch, BLEED, MARK_AREA};
 use crate::model::{Access, Event, Options, ACCESS_MODES};
 use crate::photos;
 use crate::typeset::{wrap, wrap_phrases};
@@ -178,6 +178,9 @@ pub fn mode_label(mode: &str) -> &'static str {
 
 /// 写真を枠に収める(全体が見えるように縮小し、余白は残す)。描いた矩形を返す.
 fn draw_contain(c: &mut Canvas, id: &str, x: f32, y: f32, w: f32, h: f32) -> Option<[f32; 4]> {
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
     let p = photos::get(id)?;
     let ar = p.width as f32 / p.height as f32;
     let (iw, ih) = if ar > w / h { (w, w / ar) } else { (h * ar, h) };
@@ -220,12 +223,16 @@ const STEPS_HEADER: f32 = 6.0 * MM;
 const MIN_FRONT_PHOTO: f32 = 30.0 * MM;
 const MAX_MAP: f32 = 95.0 * MM;
 const NOTE_SIZE: f32 = 6.3;
+/// 案内の枠に使える高さ(本文の高さに対する割合)。残りを図や写真に使う
+const NOTE_MAX_SHARE: f32 = 0.45;
 
 /// 交通手段の文字・アイコンの大きさ(k は縮小率)と、1 件あたりの最大行数.
 #[derive(Clone, Copy)]
 struct RouteStyle {
     k: f32,
     max_lines: usize,
+    /// 名前の列の幅(縮小前)
+    label: f32,
 }
 
 impl RouteStyle {
@@ -236,11 +243,12 @@ impl RouteStyle {
         ICON * self.k
     }
     fn label_w(&self) -> f32 {
-        LABEL_W * self.k
+        self.label * self.k
     }
 }
 
-type RouteRows<'a> = Vec<(&'a str, Vec<String>)>;
+/// (種類, 表示名, 行)
+type RouteRows<'a> = Vec<(&'a str, &'a str, Vec<String>)>;
 
 fn route_lines(text: &str, w: f32, st: RouteStyle) -> Vec<String> {
     let mut lines = wrap_phrases(text, MINCHO, st.size(), w - (st.icon() + 1.5 * MM) - st.label_w());
@@ -264,16 +272,27 @@ fn fit_routes(access: &Access, w: f32, limit: f32) -> (RouteRows<'_>, RouteStyle
         let rows: RouteRows = access
             .routes
             .iter()
-            .map(|r| (r.mode.as_str(), route_lines(&r.text, w, st)))
+            .map(|r| (r.mode.as_str(), r.display_label(), route_lines(&r.text, w, st)))
             .collect();
-        let h = rows.iter().map(|(_, l)| route_row_height(l.len(), st)).sum::<f32>();
+        let h = rows.iter().map(|(_, _, l)| route_row_height(l.len(), st)).sum::<f32>();
         (rows, st, h)
     };
+    // 名前の列は、いちばん長い表示名が入る幅(既定の幅より狭くはしない)
+    let label = access
+        .routes
+        .iter()
+        .map(|r| fonts::text_width(MINCHO, r.display_label(), ROUTE_SIZE) + 2.0 * MM)
+        .fold(LABEL_W, f32::max);
     let scales = (0..=8).map(|i| RouteStyle {
         k: 1.0 - 0.05 * i as f32,
         max_lines: usize::MAX,
+        label,
     });
-    let shorter = [2, 1].map(|max_lines| RouteStyle { k: 0.6, max_lines });
+    let shorter = [2, 1].map(|max_lines| RouteStyle {
+        k: 0.6,
+        max_lines,
+        label,
+    });
     let mut last = None;
     for st in scales.chain(shorter) {
         let result = layout(st);
@@ -304,16 +323,21 @@ fn step_box(content_w: f32, grid: &Grid, s: f32) -> (f32, f32) {
     (full_w * s, full_w * 0.75 * s)
 }
 
+/// 写真の説明の幅。写真が縮んでも列の幅いっぱいを使う.
+fn caption_w(content_w: f32, grid: &Grid) -> f32 {
+    step_box(content_w, grid, 1.0).0
+}
+
 fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
     if access.steps.is_empty() {
         return 0.0;
     }
-    let (pw, ph) = step_box(content_w, grid, s);
+    let (_, ph) = step_box(content_w, grid, s);
     let mut total = STEPS_HEADER;
     for row in access.steps.chunks(grid.cols) {
         let lines = row
             .iter()
-            .map(|st| caption_lines(&st.caption, pw).len())
+            .map(|st| caption_lines(&st.caption, caption_w(content_w, grid)).len())
             .max()
             .unwrap_or(0);
         total += ph + 1.2 * MM + lines as f32 * CAPTION_SIZE * CAPTION_LEADING + STEP_GAP_Y;
@@ -339,10 +363,11 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
         let height = steps_height(access, content_w, &grid, s);
         if height <= avail {
             let pw = step_box(content_w, &grid, s).0;
+            let cw = caption_w(content_w, &grid);
             let whole = access
                 .steps
                 .iter()
-                .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
+                .all(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, cw).len() <= CAPTION_LINES);
             let balanced = cols == 1 || n <= cols || n % cols != 1;
             // 説明が省略されないものを最優先。最後の行が 1 枚だけになる並べ方は、写真が 1 割以上大きいときだけ選ぶ
             let score = if balanced { pw } else { pw * 0.9 };
@@ -413,9 +438,9 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f3
 }
 
 /// 交通手段を x0 から描く。描いた後の y を返す.
-fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d: &Design, x0: f32, mut y: f32) -> f32 {
+fn draw_routes(c: &mut Canvas, routes: &RouteRows, st: RouteStyle, d: &Design, x0: f32, mut y: f32) -> f32 {
     let (size, icon) = (st.size(), st.icon());
-    for (mode, lines) in routes {
+    for (mode, label, lines) in routes {
         let row_h = route_row_height(lines.len(), st);
         let icon_cy = y - row_h / 2.0;
         draw_icon(c, mode, x0 + icon / 2.0, icon_cy, icon, d.accent, Cmyk::PAPER);
@@ -425,7 +450,7 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d
         let base = |i: usize| text_top - lh * (i as f32 + 1.0) + (lh - size) / 2.0 + size * 0.12;
         c.set_font(MINCHO, size);
         c.set_fill(d.accent);
-        c.draw_string(x, base(0), mode_label(mode));
+        c.draw_string(x, base(0), label);
         c.set_fill(d.text);
         for (i, line) in lines.iter().enumerate() {
             c.draw_string(x + st.label_w(), base(i), line);
@@ -438,26 +463,22 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d
 /// 道順の写真を x0 から幅 content_w の中に並べる.
 #[allow(clippy::too_many_arguments)]
 fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f32, mut y: f32, grid: &Grid, s: f32) {
-    c.set_fill(d.accent);
-    c.set_font(MINCHO, 7.2);
-    let heading = access.steps_heading();
-    let hw = fonts::text_width(MINCHO, heading, 7.2);
-    c.draw_string(x0, y - 7.2, heading);
-    c.set_stroke(d.sub);
-    c.set_line_width(0.35);
-    c.line(x0 + hw + 2.0 * MM, y - 7.2 * 0.65, x0 + content_w, y - 7.2 * 0.65);
+    draw_section_heading(c, d, access.steps_heading(), x0, content_w, y);
     y -= STEPS_HEADER;
 
     let (pw, ph) = step_box(content_w, grid, s);
     let lh = CAPTION_SIZE * CAPTION_LEADING;
     let mut number = 0;
     for row in access.steps.chunks(grid.cols) {
-        let row_w = pw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
+        // 列は縮める前の幅で並べ、写真は列の左に寄せる(説明は列の幅いっぱいまで使える)
+        let fw = step_box(content_w, grid, 1.0).0;
+        let row_w = fw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
         let left = x0 + (content_w - row_w) / 2.0;
         let mut caption_h: f32 = 0.0;
         for (i, step) in row.iter().enumerate() {
             number += 1;
-            let x = left + i as f32 * (pw + STEP_GAP_X);
+            let col_x = left + i as f32 * (fw + STEP_GAP_X);
+            let x = col_x;
             if !draw_cover(c, &step.photo, x, y - ph, pw, ph) {
                 c.set_fill(PLACEHOLDER);
                 c.rect(x, y - ph, pw, ph, false, true);
@@ -474,7 +495,8 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
             // 同じ行の次の写真への矢印(行の折り返しは番号で順番がわかるので矢印を付けない)
             if i + 1 < row.len() {
                 let a = 1.3 * MM;
-                let (ax, ay) = (x + pw + STEP_GAP_X / 2.0, y - ph / 2.0);
+                // 矢印は、この写真の右端と次の写真の左端のまん中
+                let (ax, ay) = ((x + pw + col_x + fw + STEP_GAP_X) / 2.0, y - ph / 2.0);
                 let mut p = Path::new();
                 p.move_to(ax - a * 0.5, ay + a)
                     .line_to(ax + a * 0.7, ay)
@@ -484,7 +506,7 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
                 c.draw_path(p, false, true);
             }
             // 説明
-            let lines = caption_lines(&step.caption, pw);
+            let lines = caption_lines(&step.caption, col_x + fw - x);
             c.set_fill(d.text);
             c.set_font(MINCHO, CAPTION_SIZE);
             for (j, line) in lines.iter().enumerate() {
@@ -497,11 +519,22 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
     }
 }
 
+/// 「最寄り駅からの道順」などの小見出しと、その右に伸ばす罫線.
+fn draw_section_heading(c: &mut Canvas, d: &Design, heading: &str, x0: f32, w: f32, y: f32) {
+    c.set_fill(d.accent);
+    c.set_font(MINCHO, 7.2);
+    let hw = fonts::text_width(MINCHO, heading, 7.2);
+    c.draw_string(x0, y - 7.2, heading);
+    c.set_stroke(d.sub);
+    c.set_line_width(0.35);
+    c.line(x0 + hw + 2.0 * MM, y - 7.2 * 0.65, x0 + w, y - 7.2 * 0.65);
+}
+
 /// 下端の余白。デザインの下の飾り(水引・草花など)に本文が重ならないようにする.
 fn foot(d: &Design) -> f32 {
     match d.key {
-        // ホワイトは右下の線画の花が縦に 24mm ほど伸びる
-        "white" => 24.0 * MM,
+        // ホワイトは右下の線画の花が縦に 24mm ほど伸び、枠の角とも離す
+        "white" => 27.0 * MM,
         _ => (d.bottom_margin - 4.0 * MM).max(MARGIN),
     }
 }
@@ -552,6 +585,20 @@ fn draw_map(c: &mut Canvas, access: &Access, d: &Design, x: f32, y: f32, w: f32,
 
 /// 案内図のページ(1 枚、または表裏 2 枚).
 pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
+    if !options.booklet {
+        return single_pages(event, access, design, options);
+    }
+    // 中綴じ: トンボなしでページを作り、1 面 2 ページずつ並べてからシートにトンボを付ける
+    let plain = Options {
+        crop_marks: false,
+        ..*options
+    };
+    let (w, h) = postcard_size(access);
+    saddle_stitch(single_pages(event, access, design, &plain), w, h, options.crop_marks)
+}
+
+/// 案内図のページ(ハガキ 1 枚ずつ).
+fn single_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
     // 案内図のデザインが選ばれていなければ招待状と同じ
     let d = designs::get(if access.design.is_empty() {
         design
@@ -581,13 +628,16 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         let rest = (y - bottom - routes_h - SECTION_GAP).max(0.0);
         let (grid, s) = choose_grid(access, content_w, rest, max_cols);
         let pw = step_box(content_w, &grid, s).0;
+        let cw = caption_w(content_w, &grid);
         pw < MIN_FRONT_PHOTO
             || access
                 .steps
                 .iter()
-                .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, pw).len() > CAPTION_LINES)
+                .any(|st| wrap_phrases(&st.caption, MINCHO, CAPTION_SIZE, cw).len() > CAPTION_LINES)
     };
-    let two_sided = is_two_sided(access) || crowded;
+    // 道順の案内文があるときは、道順写真を案内文と一緒に別のページに置く(表には案内文の場所がない)
+    let steps_with_note = !access.steps.is_empty() && !access.steps_note.is_empty();
+    let two_sided = is_two_sided(access) || crowded || steps_with_note;
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
     //   地図あり: 左に地図、右に交通手段 / 地図なし: 左に交通手段、右に道順写真
     let steps_on_front = !two_sided && !access.steps.is_empty();
@@ -664,27 +714,167 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         draw_note(c, &note_lines, d);
     });
     let mut pages = vec![front];
+    let car = access.car_route();
+    let car_note = access.car_note.as_str();
+    // 道順のページが 2 つあり、同じ列数で並ぶなら、写真の大きさを小さいほうにそろえる
+    let mut station_fit = steps_fit(event, access, d, content_w, max_cols, &access.steps_note, 0.0);
+    let mut car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note, 0.0);
+    let paired = two_sided && !access.car_steps.is_empty() && station_fit.0.cols == car_fit.0.cols;
+    if paired {
+        // 案内の枠も高いほうにそろえてから、写真の大きさを小さいほうにそろえる
+        let box_h = station_fit.2.max(car_fit.2);
+        station_fit = steps_fit(event, access, d, content_w, max_cols, &access.steps_note, box_h);
+        car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note, box_h);
+        let s = station_fit.1.min(car_fit.1);
+        station_fit.1 = s;
+        car_fit.1 = s;
+    }
     if two_sided {
         pages.push(page(access, options, d, "(裏)", |c| {
-            draw_steps_page(c, event, access, d, content_w, max_cols)
+            draw_steps_page(c, event, access, d, content_w, &access.steps_note, station_fit, !paired)
         }));
     }
     // もう 1 つの道順(お車など)は別のページに
     if !access.car_steps.is_empty() {
-        let car = access.car_route();
         pages.push(page(access, options, d, "(お車)", |c| {
-            draw_steps_page(c, event, &car, d, content_w, max_cols)
+            draw_steps_page(c, event, &car, d, content_w, car_note, car_fit, !paired)
+        }));
+    }
+    // 館内図は最後のページに大きく
+    if photos::has(&access.floor_map) {
+        pages.push(page(access, options, d, "(館内図)", |c| {
+            let y = draw_header(c, event, access, d);
+            draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
+            let top = y - STEPS_HEADER;
+            let box_h = draw_note_box(
+                c,
+                d,
+                content_w,
+                &access.floor_note,
+                0.0,
+                (top - foot(d)) * NOTE_MAX_SHARE,
+            );
+            let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+            draw_contain(c, &access.floor_map, MARGIN, bottom, content_w, top - bottom);
         }));
     }
     pages
 }
 
 /// 見出しと道順写真だけのページ.
-fn draw_steps_page(c: &mut Canvas, event: &Event, access: &Access, d: &Design, content_w: f32, max_cols: usize) {
+/// 下端に、枠で囲んだ案内文を描く。描いた枠の高さを返す(案内文がなければ 0).
+/// min_h より低ければ min_h の高さにして、文字を上下の中央に置く.
+/// max_h を超える分の行は省き、最後の行の末尾を「…」にする(図や写真の場所を残す)。
+fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str, min_h: f32, max_h: f32) -> f32 {
+    const PAD: f32 = 2.5 * MM;
+    // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
+    // 「＊」(または「*」)で始まる行は注記として小さめの文字で中央にそろえる。(字下げ, 文字の大きさ, 中央, 行) の並び
+    let text_w = content_w - 2.0 * PAD;
+    let mut lines: Vec<(f32, f32, bool, String)> = Vec::new();
+    for para in note.lines().filter(|l| !l.trim().is_empty()) {
+        let body = para.trim_start_matches('　');
+        let level = (para.chars().count() - body.chars().count()) as f32 * NOTE_SIZE;
+        let body = body.trim_start();
+        let (bullet, size, body) = if let Some(rest) = body.strip_prefix('・') {
+            ("・", NOTE_SIZE, rest)
+        } else if let Some(rest) = body.strip_prefix('＊').or_else(|| body.strip_prefix('*')) {
+            ("＊", NOTE_SIZE * 0.85, rest)
+        } else {
+            ("", NOTE_SIZE, body)
+        };
+        let hang = fonts::text_width(MINCHO, bullet, size);
+        let center = bullet == "＊";
+        for (i, line) in wrap_phrases(body, MINCHO, size, text_w - level - hang)
+            .into_iter()
+            .enumerate()
+        {
+            if i == 0 {
+                lines.push((level, size, center, format!("{bullet}{line}")));
+            } else {
+                lines.push((level + hang, size, center, line));
+            }
+        }
+    }
+    let line_h = |size: f32| size * 1.6;
+    let height =
+        |lines: &[(f32, f32, bool, String)]| lines.iter().map(|(_, size, _, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD;
+    if !lines.is_empty() && height(&lines) > max_h {
+        while lines.len() > 1 && height(&lines) > max_h {
+            lines.pop();
+        }
+        if let Some((_, _, _, last)) = lines.last_mut() {
+            last.pop();
+            last.push('…');
+        }
+    }
+    let box_h = if lines.is_empty() {
+        0.0
+    } else {
+        lines.iter().map(|(_, size, _, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD
+    };
+    let natural = box_h;
+    let box_h = if natural > 0.0 { natural.max(min_h) } else { 0.0 };
+    if box_h > 0.0 {
+        c.set_stroke(d.sub);
+        c.set_line_width(0.35);
+        c.rect(MARGIN, foot(d), content_w, box_h, true, false);
+        c.set_fill(d.text);
+        let mut ly = foot(d) + box_h - PAD - (box_h - natural) / 2.0;
+        for (indent, size, center, line) in &lines {
+            let lh = line_h(*size);
+            c.set_font(MINCHO, *size);
+            let base = ly - lh + size * 0.42 + (lh - size) / 2.0;
+            if *center {
+                c.draw_centred(MARGIN + content_w / 2.0, base, line);
+            } else {
+                c.draw_string(MARGIN + PAD + indent, base, line);
+            }
+            ly -= lh;
+        }
+    }
+    box_h
+}
+
+/// 道順のページで写真に使える高さに収まる (並べ方, 縮小率)。案内の枠の高さも返す.
+fn steps_fit(
+    event: &Event,
+    access: &Access,
+    d: &Design,
+    content_w: f32,
+    max_cols: usize,
+    note: &str,
+    min_h: f32,
+) -> (Grid, f32, f32) {
+    let (w, h) = postcard_size(access);
+    let mut scratch = bleed_page(w, h, false);
+    let y = draw_header(&mut scratch, event, access, d);
+    let box_h = draw_note_box(&mut scratch, d, content_w, note, min_h, (y - foot(d)) * NOTE_MAX_SHARE);
+    let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+    let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
+    (grid, s, box_h)
+}
+
+/// 見出しと道順写真のページ。note があれば写真の下に枠で囲んで添える(駐車場の案内など).
+#[allow(clippy::too_many_arguments)]
+fn draw_steps_page(
+    c: &mut Canvas,
+    event: &Event,
+    access: &Access,
+    d: &Design,
+    content_w: f32,
+    note: &str,
+    (grid, s, min_h): (Grid, f32, f32),
+    center: bool,
+) {
     let y = draw_header(c, event, access, d);
-    let (grid, s) = choose_grid(access, content_w, y - foot(d), max_cols);
-    // 余白が残るときは上下の中央に寄せる
-    let spare = (y - foot(d) - steps_height(access, content_w, &grid, s)).max(0.0);
+    let box_h = draw_note_box(c, d, content_w, note, min_h, (y - foot(d)) * NOTE_MAX_SHARE);
+    let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+    // 余白が残るときは上下の中央に寄せる(2 つの道順のページで写真をそろえるときは上にそろえる)
+    let spare = if center {
+        (y - bottom - steps_height(access, content_w, &grid, s)).max(0.0)
+    } else {
+        0.0
+    };
     draw_steps(
         c,
         access,
@@ -711,6 +901,7 @@ mod tests {
                 .map(|(k, _)| AccessRoute {
                     mode: k.to_string(),
                     text: text.into(),
+                    ..AccessRoute::default()
                 })
                 .collect(),
             ..Access::default()

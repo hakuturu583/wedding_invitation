@@ -337,6 +337,8 @@ impl Event {
 pub struct Options {
     pub crop_marks: bool,
     pub envelope_back: bool,
+    /// 案内図を中綴じ冊子用に 1 面 2 ページずつ並べる
+    pub booklet: bool,
 }
 
 impl Default for Options {
@@ -344,6 +346,7 @@ impl Default for Options {
         Options {
             crop_marks: true,
             envelope_back: true,
+            booklet: false,
         }
     }
 }
@@ -373,12 +376,27 @@ pub struct AccessRoute {
     /// ACCESS_MODES のキー
     pub mode: String,
     pub text: String,
+    /// 表示名(空なら種類の名前。例: 電車 → 「南海電鉄」)
+    pub label: String,
+}
+
+impl AccessRoute {
+    /// 案内図に出す名前.
+    pub fn display_label(&self) -> &str {
+        if self.label.is_empty() {
+            crate::access::mode_label(&self.mode)
+        } else {
+            &self.label
+        }
+    }
 }
 
 /// 道順写真の見出しの既定値
 pub const DEFAULT_STEPS_TITLE: &str = "最寄り駅からの道順";
 /// もう 1 つの道順の見出しの既定値
 pub const DEFAULT_CAR_STEPS_TITLE: &str = "お車でご来場の方";
+/// 館内図の見出しの既定値
+pub const DEFAULT_FLOOR_MAP_TITLE: &str = "館内図";
 
 /// 最寄り駅からの道順の 1 枚(写真と説明).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -406,10 +424,20 @@ pub struct Access {
     pub design: String,
     /// 道順写真の見出し(空なら「最寄り駅からの道順」)
     pub steps_title: String,
+    /// 道順写真の下に添える案内(注意書きなど)
+    pub steps_note: String,
     /// もう 1 つの道順(お車など)。あれば別のページに並べる
     pub car_steps: Vec<RouteStep>,
     /// もう 1 つの道順の見出し(空なら「お車でご来場の方」)
     pub car_steps_title: String,
+    /// もう 1 つの道順のページの下に添える案内(駐車場など)
+    pub car_note: String,
+    /// 館内図の画像(photos の ID)。あれば別のページに大きく載せる
+    pub floor_map: String,
+    /// 館内図の見出し(空なら「館内図」)
+    pub floor_map_title: String,
+    /// 館内図のページの下に添える案内(工事のお知らせなど)
+    pub floor_note: String,
 }
 
 impl Default for Access {
@@ -421,18 +449,22 @@ impl Default for Access {
                 AccessRoute {
                     mode: "train".into(),
                     text: "JR 東京駅 丸の内中央口より徒歩 5 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "subway".into(),
                     text: "地下鉄 大手町駅 D1 出口より徒歩 3 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "taxi".into(),
                     text: "東京駅 丸の内口のタクシー乗り場より約 5 分".into(),
+                    ..AccessRoute::default()
                 },
                 AccessRoute {
                     mode: "parking".into(),
                     text: "ホテル地下駐車場 100 台(披露宴ご出席の方は 3 時間無料)".into(),
+                    ..AccessRoute::default()
                 },
             ],
             steps: Vec::new(),
@@ -440,8 +472,13 @@ impl Default for Access {
             orientation: PORTRAIT.into(),
             design: String::new(),
             steps_title: String::new(),
+            steps_note: String::new(),
             car_steps: Vec::new(),
             car_steps_title: String::new(),
+            car_note: String::new(),
+            floor_map: String::new(),
+            floor_map_title: String::new(),
+            floor_note: String::new(),
         }
     }
 }
@@ -458,6 +495,7 @@ impl Access {
                     "train".into()
                 },
                 text: clean(&r.text, MAX_LEN),
+                label: clean(&r.label, 8),
             })
             .filter(|r| !r.text.is_empty())
             .take(MAX_ROUTES)
@@ -482,8 +520,13 @@ impl Access {
             steps,
             note: clean(&self.note, MAX_MESSAGE_LEN),
             steps_title: clean(&self.steps_title, 40),
+            steps_note: clean(&self.steps_note, MAX_MESSAGE_LEN),
             car_steps,
             car_steps_title: clean(&self.car_steps_title, 40),
+            car_note: clean(&self.car_note, MAX_MESSAGE_LEN),
+            floor_map: clean(&self.floor_map, 64),
+            floor_map_title: clean(&self.floor_map_title, 40),
+            floor_note: clean(&self.floor_note, MAX_MESSAGE_LEN),
             orientation: if self.orientation == LANDSCAPE {
                 LANDSCAPE
             } else {
@@ -521,6 +564,15 @@ impl Access {
         }
     }
 
+    /// 館内図の見出し.
+    pub fn floor_map_heading(&self) -> &str {
+        if self.floor_map_title.is_empty() {
+            DEFAULT_FLOOR_MAP_TITLE
+        } else {
+            &self.floor_map_title
+        }
+    }
+
     pub fn is_landscape(&self) -> bool {
         self.orientation == LANDSCAPE
     }
@@ -530,6 +582,7 @@ impl Access {
             && self.routes.is_empty()
             && self.steps.is_empty()
             && self.car_steps.is_empty()
+            && self.floor_map.is_empty()
             && self.note.is_empty()
     }
 }

@@ -123,6 +123,7 @@ fn main() {
             .map(|(k, _)| wedding_invitation::model::AccessRoute {
                 mode: k.to_string(),
                 text: text.into(),
+                ..Default::default()
             })
             .collect();
         let order = Order {

@@ -159,6 +159,7 @@ fn cards_without_crop_marks_are_trim_plus_bleed() {
             Options {
                 crop_marks: false,
                 envelope_back: true,
+                booklet: false,
             },
         ),
         Doc::Card,
@@ -193,6 +194,7 @@ fn envelopes() {
             Options {
                 crop_marks: true,
                 envelope_back: false,
+                booklet: false,
             },
         ),
         Doc::Envelope,
@@ -325,6 +327,66 @@ fn access_map_is_postcard_with_cmyk_photos() {
     let pages = doc.get_pages();
     assert_eq!(pages.len(), 3);
     assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "お車の道順の写真");
+    // 館内図は最後のページ(お車の道順のあと)に 1 枚
+    let mut o = access_order(true, 3);
+    o.access.floor_map = "map".into();
+    o.access.car_steps = o.access.steps.clone();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 4);
+    assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "3 ページ目はお車の道順");
+    assert_eq!(assert_images_cmyk(&doc, pages[&4]), 1, "4 ページ目は館内図");
+    // 中綴じ: 4 ページを 1 面 2 ページずつ(表 4|1、裏 2|3)の 2 面に並べる
+    o.options.booklet = true;
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let sheets = doc.get_pages();
+    assert_eq!(sheets.len(), 2, "4 ページ → 2 面");
+    let sheet = doc.get_dictionary(sheets[&1]).unwrap();
+    approx(&rect(&doc, sheet, b"TrimBox"), &[off, off, off + 2.0 * w, off + h]);
+    assert_eq!(assert_images_cmyk(&doc, sheets[&2]), 3, "裏は道順(2)とお車(3)の写真");
+    // 長い案内文(横向きのハガキに 20 行)でも、館内図・写真の場所を残して収める
+    o.options.booklet = false;
+    o.access.orientation = "landscape".into();
+    o.access.floor_note = vec!["・注意"; 20].join("\n");
+    o.access.car_note = o.access.floor_note.clone();
+    assert_print_ready(&build_pdf(&o, Doc::Access).unwrap());
+    o.access.orientation = "portrait".into();
+    o.access.floor_note.clear();
+    o.access.car_note.clear();
+    o.options.booklet = true;
+    // 3 ページなら白ページを足して 4 ページ(2 面)にする
+    o.access.floor_map.clear();
+    assert_eq!(
+        assert_print_ready(&build_pdf(&o, Doc::Access).unwrap())
+            .get_pages()
+            .len(),
+        2
+    );
+    // お車の案内(駐車場など)があっても、お車のページに写真と一緒に収まる
+    let mut o = access_order(true, 3);
+    o.access.car_steps = o.access.steps.clone();
+    o.access.car_note =
+        "ホテルの駐車場が満車の場合は、なんばシティの駐車場をご利用ください\n披露宴後に QR コードを受け取ると無料"
+            .into();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    assert_eq!(doc.get_pages().len(), 3);
+    // 館内図だけなら道順のあとに 1 枚
+    let mut o = access_order(true, 3);
+    o.access.floor_map = "map".into();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 3);
+    assert_eq!(assert_images_cmyk(&doc, pages[&3]), 1, "館内図");
+    // 道順の案内文があれば、写真が表に収まる場合でも道順は別のページに(案内文を落とさない)
+    let mut o = access_order(false, 2);
+    o.access.steps_note = "・地下通路で徒歩約 10 分".into();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    assert_eq!(assert_print_ready(&pdf).get_pages().len(), 2);
+    assert!(build_preview(&o, Doc::Access, 0).unwrap().contains("地下通路"));
     // 交通手段がなければ道順写真 6 枚だけで 1 ページ
     let mut o = access_order(false, 6);
     o.access.routes.clear();

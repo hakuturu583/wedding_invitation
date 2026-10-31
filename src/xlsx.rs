@@ -46,9 +46,17 @@ enum Slot {
     Access(fn(&mut Access) -> &mut String),
     CropMarks,
     EnvelopeBack,
+    Booklet,
     AccessOrientation,
     AccessDesign,
     CardLayout,
+}
+
+impl Slot {
+    /// する/しない の項目が空欄のときの値.
+    fn default_flag(self) -> bool {
+        !matches!(self, Slot::Booklet)
+    }
 }
 
 struct SettingRow {
@@ -168,6 +176,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "差出人の裏面ページを付けるか",
     },
     SettingRow {
+        label: "案内図の中綴じ",
+        kind: Kind::Flag,
+        slot: Slot::Booklet,
+        help: "案内図を中綴じ冊子用に 1 面 2 ページずつ並べるか",
+    },
+    SettingRow {
         label: "案内図のデザイン",
         kind: Kind::AccessDesign,
         slot: Slot::AccessDesign,
@@ -192,10 +206,34 @@ const SETTINGS: &[SettingRow] = &[
         help: "道順写真の見出し。空なら「最寄り駅からの道順」(例: 南海なんば駅からの道順)",
     },
     SettingRow {
+        label: "道順の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.steps_note),
+        help: "道順の写真の下に枠で添える文(例: 注意書き)",
+    },
+    SettingRow {
         label: "お車の道順の見出し",
         kind: Kind::Text,
         slot: Slot::Access(|a| &mut a.car_steps_title),
         help: "お車の道順写真(別ページ)の見出し。空なら「お車でご来場の方」。写真は画面で追加",
+    },
+    SettingRow {
+        label: "お車の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.car_note),
+        help: "お車の道順のページの下に枠で添える文(例: 駐車場の案内)",
+    },
+    SettingRow {
+        label: "館内図の見出し",
+        kind: Kind::Text,
+        slot: Slot::Access(|a| &mut a.floor_map_title),
+        help: "館内図(別ページ)の見出し。空なら「館内図」。画像は画面で追加",
+    },
+    SettingRow {
+        label: "館内図の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.floor_note),
+        help: "館内図のページの下に枠で添える文(例: 工事のお知らせ)",
     },
     SettingRow {
         label: "案内図の補足",
@@ -278,6 +316,7 @@ fn settings_value(order: &Order, row: &SettingRow) -> String {
         Slot::Access(f) => f(&mut order.access.clone()).clone(),
         Slot::CropMarks => (if order.options.crop_marks { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::EnvelopeBack => (if order.options.envelope_back { FLAG_ON } else { FLAG_OFF }).into(),
+        Slot::Booklet => (if order.options.booklet { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::AccessOrientation => (if order.access.is_landscape() { "横" } else { "縦" }).into(),
         Slot::AccessDesign => match designs::find(&order.access.design) {
             Some(d) => d.name.into(),
@@ -371,6 +410,7 @@ fn table_sheet(rows: &[Vec<String>]) -> String {
     x.push_str("<cols>");
     let width = |h: &str| match h {
         "説明" => 64,
+        "表示名" => 14,
         "種類" => 12,
         "住所1" => 30,
         "住所2" => 30,
@@ -477,14 +517,14 @@ pub fn write_workbook(order: &Order) -> Vec<u8> {
 
 /// 案内図の交通手段(種類はプルダウン).
 fn access_sheet(access: &Access) -> String {
-    let mut rows = vec![vec!["種類".to_string(), "説明".to_string()]];
+    let mut rows = vec![vec!["種類".to_string(), "説明".to_string(), "表示名".to_string()]];
     for r in &access.routes {
         let label = ACCESS_MODES
             .iter()
             .find(|(k, _)| *k == r.mode)
             .map(|(_, l)| *l)
             .unwrap_or("");
-        rows.push(vec![label.to_string(), r.text.clone()]);
+        rows.push(vec![label.to_string(), r.text.clone(), r.label.clone()]);
     }
     let labels: Vec<&str> = ACCESS_MODES.iter().map(|(_, l)| *l).collect();
     let validation = format!(
@@ -541,6 +581,8 @@ fn read_routes(rows: &[Vec<String>], warnings: &mut Vec<String>) -> Option<Vec<A
     let h = rows.iter().position(|r| r.iter().any(|c| c.trim() == "種類"))?;
     let col = |name: &str| rows[h].iter().position(|c| c.trim() == name);
     let (mode_col, text_col) = (col("種類")?, col("説明")?);
+    // 「表示名」は後から足した列なので、なくてもよい
+    let label_col = col("表示名");
     let mut routes = Vec::new();
     for row in &rows[h + 1..] {
         let get = |i: usize| row.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
@@ -559,6 +601,7 @@ fn read_routes(rows: &[Vec<String>], warnings: &mut Vec<String>) -> Option<Vec<A
         routes.push(AccessRoute {
             mode: mode.into(),
             text,
+            label: label_col.map(get).unwrap_or_default(),
         });
     }
     Some(routes)
@@ -954,17 +997,20 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         }
                     };
                 }
-                Slot::CropMarks | Slot::EnvelopeBack => {
-                    let value = if text.is_empty() { Some(true) } else { to_flag(&text) };
+                Slot::CropMarks | Slot::EnvelopeBack | Slot::Booklet => {
+                    // 空欄なら既定値(トンボ・封筒の裏面は付ける、中綴じはしない)
+                    let default = setting.slot.default_flag();
+                    let value = if text.is_empty() { Some(default) } else { to_flag(&text) };
                     let value = value.unwrap_or_else(|| {
                         warnings.push(format!(
                             "「{}」の値「{text}」は「{FLAG_ON}」か「{FLAG_OFF}」で入力してください",
                             setting.label
                         ));
-                        true
+                        default
                     });
                     match setting.slot {
                         Slot::CropMarks => order.options.crop_marks = value,
+                        Slot::Booklet => order.options.booklet = value,
                         _ => order.options.envelope_back = value,
                     }
                 }
@@ -1102,6 +1148,7 @@ mod tests {
                 orientation: LANDSCAPE.into(),
                 design: "sakura".into(),
                 steps_title: "南海なんば駅からの道順".into(),
+                steps_note: "・改装工事中です".into(),
                 car_steps_title: "お車の方".into(),
                 steps: vec![
                     RouteStep {
@@ -1137,6 +1184,7 @@ mod tests {
             options: Options {
                 crop_marks: false,
                 envelope_back: true,
+                booklet: false,
             },
         }
     }
@@ -1147,6 +1195,7 @@ mod tests {
         o.guests.clear();
         o.card.photo.clear();
         o.access.map_photo.clear();
+        o.access.floor_map.clear();
         for st in o.access.steps.iter_mut().chain(o.access.car_steps.iter_mut()) {
             st.photo.clear();
         }
@@ -1182,18 +1231,26 @@ mod tests {
             options: Options {
                 crop_marks: false,
                 envelope_back: false,
+                booklet: true,
             },
             access: Access {
                 title: "交通のご案内".into(),
                 map_photo: "map".into(),
                 routes: vec![
                     AccessRoute {
+                        mode: "train".into(),
+                        text: "南海なんば駅 3F 北改札口からホテル直結".into(),
+                        label: "南海電鉄".into(),
+                    },
+                    AccessRoute {
                         mode: "subway".into(),
                         text: "御堂筋線 なんば駅から地下通路で徒歩約 4 分".into(),
+                        ..AccessRoute::default()
                     },
                     AccessRoute {
                         mode: "taxi".into(),
                         text: "ホテルロビー 6F にお越しください".into(),
+                        ..AccessRoute::default()
                     },
                 ],
                 steps: vec![step("s1", "北改札を出て赤丸のホテルロゴへ"), step("s2", "")],
@@ -1201,8 +1258,13 @@ mod tests {
                 orientation: LANDSCAPE.into(),
                 design: "botanical".into(),
                 steps_title: "南海なんば駅からの道順".into(),
+                steps_note: "・当日は改装工事のため、ルートが変わる場合がございます".into(),
                 car_steps: vec![step("c1", "6F ロビー直結の車寄せへ")],
                 car_steps_title: "お車の方".into(),
+                car_note: "満車の場合は\nなんばシティの駐車場へ".into(),
+                floor_map: "floor".into(),
+                floor_map_title: "ホテル館内図".into(),
+                floor_note: "6F は改装工事中です".into(),
             },
             card: crate::model::CardStyle {
                 layout: "photo".into(),
