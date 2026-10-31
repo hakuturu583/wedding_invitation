@@ -346,6 +346,16 @@ fn access_map_is_postcard_with_cmyk_photos() {
     let sheet = doc.get_dictionary(sheets[&1]).unwrap();
     approx(&rect(&doc, sheet, b"TrimBox"), &[off, off, off + 2.0 * w, off + h]);
     assert_eq!(assert_images_cmyk(&doc, sheets[&2]), 3, "裏は道順(2)とお車(3)の写真");
+    // 長い案内文(横向きのハガキに 20 行)でも、館内図・写真の場所を残して収める
+    o.options.booklet = false;
+    o.access.orientation = "landscape".into();
+    o.access.floor_note = vec!["・注意"; 20].join("\n");
+    o.access.car_note = o.access.floor_note.clone();
+    assert_print_ready(&build_pdf(&o, Doc::Access).unwrap());
+    o.access.orientation = "portrait".into();
+    o.access.floor_note.clear();
+    o.access.car_note.clear();
+    o.options.booklet = true;
     // 3 ページなら白ページを足して 4 ページ(2 面)にする
     o.access.floor_map.clear();
     assert_eq!(

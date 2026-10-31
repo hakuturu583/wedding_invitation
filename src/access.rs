@@ -178,6 +178,9 @@ pub fn mode_label(mode: &str) -> &'static str {
 
 /// 写真を枠に収める(全体が見えるように縮小し、余白は残す)。描いた矩形を返す.
 fn draw_contain(c: &mut Canvas, id: &str, x: f32, y: f32, w: f32, h: f32) -> Option<[f32; 4]> {
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
     let p = photos::get(id)?;
     let ar = p.width as f32 / p.height as f32;
     let (iw, ih) = if ar > w / h { (w, w / ar) } else { (h * ar, h) };
@@ -220,6 +223,8 @@ const STEPS_HEADER: f32 = 6.0 * MM;
 const MIN_FRONT_PHOTO: f32 = 30.0 * MM;
 const MAX_MAP: f32 = 95.0 * MM;
 const NOTE_SIZE: f32 = 6.3;
+/// 案内の枠に使える高さ(本文の高さに対する割合)。残りを図や写真に使う
+const NOTE_MAX_SHARE: f32 = 0.45;
 
 /// 交通手段の文字・アイコンの大きさ(k は縮小率)と、1 件あたりの最大行数.
 #[derive(Clone, Copy)]
@@ -739,7 +744,14 @@ fn single_pages(event: &Event, access: &Access, design: &str, options: &Options)
             let y = draw_header(c, event, access, d);
             draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
-            let box_h = draw_note_box(c, d, content_w, &access.floor_note, 0.0);
+            let box_h = draw_note_box(
+                c,
+                d,
+                content_w,
+                &access.floor_note,
+                0.0,
+                (top - foot(d)) * NOTE_MAX_SHARE,
+            );
             let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
             draw_contain(c, &access.floor_map, MARGIN, bottom, content_w, top - bottom);
         }));
@@ -750,7 +762,8 @@ fn single_pages(event: &Event, access: &Access, design: &str, options: &Options)
 /// 見出しと道順写真だけのページ.
 /// 下端に、枠で囲んだ案内文を描く。描いた枠の高さを返す(案内文がなければ 0).
 /// min_h より低ければ min_h の高さにして、文字を上下の中央に置く.
-fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str, min_h: f32) -> f32 {
+/// max_h を超える分の行は省き、最後の行の末尾を「…」にする(図や写真の場所を残す)。
+fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str, min_h: f32, max_h: f32) -> f32 {
     const PAD: f32 = 2.5 * MM;
     // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
     // 「＊」(または「*」)で始まる行は注記として小さめの文字で中央にそろえる。(字下げ, 文字の大きさ, 中央, 行) の並び
@@ -781,6 +794,17 @@ fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str, min_h: 
         }
     }
     let line_h = |size: f32| size * 1.6;
+    let height =
+        |lines: &[(f32, f32, bool, String)]| lines.iter().map(|(_, size, _, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD;
+    if !lines.is_empty() && height(&lines) > max_h {
+        while lines.len() > 1 && height(&lines) > max_h {
+            lines.pop();
+        }
+        if let Some((_, _, _, last)) = lines.last_mut() {
+            last.pop();
+            last.push('…');
+        }
+    }
     let box_h = if lines.is_empty() {
         0.0
     } else {
@@ -822,7 +846,7 @@ fn steps_fit(
     let (w, h) = postcard_size(access);
     let mut scratch = bleed_page(w, h, false);
     let y = draw_header(&mut scratch, event, access, d);
-    let box_h = draw_note_box(&mut scratch, d, content_w, note, min_h);
+    let box_h = draw_note_box(&mut scratch, d, content_w, note, min_h, (y - foot(d)) * NOTE_MAX_SHARE);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
     let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
     (grid, s, box_h)
@@ -841,7 +865,7 @@ fn draw_steps_page(
     center: bool,
 ) {
     let y = draw_header(c, event, access, d);
-    let box_h = draw_note_box(c, d, content_w, note, min_h);
+    let box_h = draw_note_box(c, d, content_w, note, min_h, (y - foot(d)) * NOTE_MAX_SHARE);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
     // 余白が残るときは上下の中央に寄せる(2 つの道順のページで写真をそろえるときは上にそろえる)
     let spare = if center {
