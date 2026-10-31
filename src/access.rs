@@ -7,7 +7,7 @@
 use crate::canvas::{Canvas, Cmyk, Page, Path, MM};
 use crate::designs::{self, divider, Design};
 use crate::fonts::{self, FontId};
-use crate::layout::{bleed_page, draw_crop_marks, BLEED, MARK_AREA};
+use crate::layout::{bleed_page, draw_crop_marks, saddle_stitch, BLEED, MARK_AREA};
 use crate::model::{Access, Event, Options, ACCESS_MODES};
 use crate::photos;
 use crate::typeset::{wrap, wrap_phrases};
@@ -580,6 +580,20 @@ fn draw_map(c: &mut Canvas, access: &Access, d: &Design, x: f32, y: f32, w: f32,
 
 /// 案内図のページ(1 枚、または表裏 2 枚).
 pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
+    if !options.booklet {
+        return single_pages(event, access, design, options);
+    }
+    // 中綴じ: トンボなしでページを作り、1 面 2 ページずつ並べてからシートにトンボを付ける
+    let plain = Options {
+        crop_marks: false,
+        ..*options
+    };
+    let (w, h) = postcard_size(access);
+    saddle_stitch(single_pages(event, access, design, &plain), w, h, options.crop_marks)
+}
+
+/// 案内図のページ(ハガキ 1 枚ずつ).
+fn single_pages(event: &Event, access: &Access, design: &str, options: &Options) -> Vec<Page> {
     // 案内図のデザインが選ばれていなければ招待状と同じ
     let d = designs::get(if access.design.is_empty() {
         design

@@ -537,6 +537,7 @@ function order() {
     options: {
       crop_marks: form.elements.crop_marks.checked,
       envelope_back: form.elements.envelope_back.checked,
+      booklet: form.elements.booklet.checked,
     },
     access: access(),
     card: { layout: cardLayout(), photo: cardPhotoId },
@@ -561,6 +562,7 @@ function fill(state) {
   if (state?.options) {
     form.elements.crop_marks.checked = state.options.crop_marks !== false;
     form.elements.envelope_back.checked = state.options.envelope_back !== false;
+    form.elements.booklet.checked = state.options.booklet === true;
   }
   const list = state?.guests?.length ? state.guests : [
     { name: "山田 太郎", postal_code: "150-0001", address1: "東京都渋谷区神宮前1-23-45",

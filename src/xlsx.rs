@@ -46,9 +46,17 @@ enum Slot {
     Access(fn(&mut Access) -> &mut String),
     CropMarks,
     EnvelopeBack,
+    Booklet,
     AccessOrientation,
     AccessDesign,
     CardLayout,
+}
+
+impl Slot {
+    /// する/しない の項目が空欄のときの値.
+    fn default_flag(self) -> bool {
+        !matches!(self, Slot::Booklet)
+    }
 }
 
 struct SettingRow {
@@ -166,6 +174,12 @@ const SETTINGS: &[SettingRow] = &[
         kind: Kind::Flag,
         slot: Slot::EnvelopeBack,
         help: "差出人の裏面ページを付けるか",
+    },
+    SettingRow {
+        label: "案内図の中綴じ",
+        kind: Kind::Flag,
+        slot: Slot::Booklet,
+        help: "案内図を中綴じ冊子用に 1 面 2 ページずつ並べるか",
     },
     SettingRow {
         label: "案内図のデザイン",
@@ -302,6 +316,7 @@ fn settings_value(order: &Order, row: &SettingRow) -> String {
         Slot::Access(f) => f(&mut order.access.clone()).clone(),
         Slot::CropMarks => (if order.options.crop_marks { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::EnvelopeBack => (if order.options.envelope_back { FLAG_ON } else { FLAG_OFF }).into(),
+        Slot::Booklet => (if order.options.booklet { FLAG_ON } else { FLAG_OFF }).into(),
         Slot::AccessOrientation => (if order.access.is_landscape() { "横" } else { "縦" }).into(),
         Slot::AccessDesign => match designs::find(&order.access.design) {
             Some(d) => d.name.into(),
@@ -982,17 +997,20 @@ pub fn read_workbook(data: &[u8]) -> Result<Imported, String> {
                         }
                     };
                 }
-                Slot::CropMarks | Slot::EnvelopeBack => {
-                    let value = if text.is_empty() { Some(true) } else { to_flag(&text) };
+                Slot::CropMarks | Slot::EnvelopeBack | Slot::Booklet => {
+                    // 空欄なら既定値(トンボ・封筒の裏面は付ける、中綴じはしない)
+                    let default = setting.slot.default_flag();
+                    let value = if text.is_empty() { Some(default) } else { to_flag(&text) };
                     let value = value.unwrap_or_else(|| {
                         warnings.push(format!(
                             "「{}」の値「{text}」は「{FLAG_ON}」か「{FLAG_OFF}」で入力してください",
                             setting.label
                         ));
-                        true
+                        default
                     });
                     match setting.slot {
                         Slot::CropMarks => order.options.crop_marks = value,
+                        Slot::Booklet => order.options.booklet = value,
                         _ => order.options.envelope_back = value,
                     }
                 }
@@ -1166,6 +1184,7 @@ mod tests {
             options: Options {
                 crop_marks: false,
                 envelope_back: true,
+                booklet: false,
             },
         }
     }
@@ -1212,6 +1231,7 @@ mod tests {
             options: Options {
                 crop_marks: false,
                 envelope_back: false,
+                booklet: true,
             },
             access: Access {
                 title: "交通のご案内".into(),

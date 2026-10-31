@@ -159,6 +159,7 @@ fn cards_without_crop_marks_are_trim_plus_bleed() {
             Options {
                 crop_marks: false,
                 envelope_back: true,
+                booklet: false,
             },
         ),
         Doc::Card,
@@ -193,6 +194,7 @@ fn envelopes() {
             Options {
                 crop_marks: true,
                 envelope_back: false,
+                booklet: false,
             },
         ),
         Doc::Envelope,
@@ -335,6 +337,23 @@ fn access_map_is_postcard_with_cmyk_photos() {
     assert_eq!(pages.len(), 4);
     assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "3 ページ目はお車の道順");
     assert_eq!(assert_images_cmyk(&doc, pages[&4]), 1, "4 ページ目は館内図");
+    // 中綴じ: 4 ページを 1 面 2 ページずつ(表 4|1、裏 2|3)の 2 面に並べる
+    o.options.booklet = true;
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let sheets = doc.get_pages();
+    assert_eq!(sheets.len(), 2, "4 ページ → 2 面");
+    let sheet = doc.get_dictionary(sheets[&1]).unwrap();
+    approx(&rect(&doc, sheet, b"TrimBox"), &[off, off, off + 2.0 * w, off + h]);
+    assert_eq!(assert_images_cmyk(&doc, sheets[&2]), 3, "裏は道順(2)とお車(3)の写真");
+    // 3 ページなら白ページを足して 4 ページ(2 面)にする
+    o.access.floor_map.clear();
+    assert_eq!(
+        assert_print_ready(&build_pdf(&o, Doc::Access).unwrap())
+            .get_pages()
+            .len(),
+        2
+    );
     // お車の案内(駐車場など)があっても、お車のページに写真と一緒に収まる
     let mut o = access_order(true, 3);
     o.access.car_steps = o.access.steps.clone();

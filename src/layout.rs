@@ -63,6 +63,55 @@ pub(crate) fn bleed_page(w: f32, h: f32, crop_marks: bool) -> Canvas {
     c
 }
 
+// ------------------------------------------------------------------ 中綴じの面付け
+
+/// 中綴じ冊子の並び(外側の紙から): 1 面ごとの (左, 右) のページ番号(0 始まり)。n は 4 の倍数.
+pub fn saddle_stitch_order(n: usize) -> Vec<(usize, usize)> {
+    let mut order = Vec::new();
+    let (mut lo, mut hi) = (0, n.saturating_sub(1));
+    while lo < hi {
+        order.push((hi, lo));
+        order.push((lo + 1, hi - 1));
+        lo += 2;
+        hi = hi.saturating_sub(2);
+    }
+    order
+}
+
+/// 仕上がり w×h のページ(トンボなし・塗り足しのみ)を、中綴じ用に 1 面 2 ページずつ並べる.
+/// ページ数は白ページで 4 の倍数にそろえる。背の側の塗り足しは切り、外側は残す。
+pub fn saddle_stitch(mut pages: Vec<Page>, w: f32, h: f32, crop_marks: bool) -> Vec<Page> {
+    while !pages.len().is_multiple_of(4) {
+        pages.push(bleed_page(w, h, false).finish());
+    }
+    saddle_stitch_order(pages.len())
+        .into_iter()
+        .map(|(left, right)| {
+            let mut c = bleed_page(2.0 * w, h, crop_marks);
+            // 元のページは塗り足しの左下が原点。シートは仕上がりの左下が原点
+            c.place(&pages[left], -BLEED, -BLEED, [0.0, 0.0, BLEED + w, h + 2.0 * BLEED]);
+            c.place(
+                &pages[right],
+                w - BLEED,
+                -BLEED,
+                [BLEED, 0.0, w + 2.0 * BLEED, h + 2.0 * BLEED],
+            );
+            if crop_marks {
+                let len = MARK_AREA - 2.0 * MM;
+                draw_crop_marks(&mut c, 2.0 * w, h, BLEED, len);
+                // 折り(背)の位置
+                c.save();
+                c.set_stroke(Cmyk::REGISTRATION);
+                c.set_line_width(0.25);
+                c.line(w, -BLEED, w, -BLEED - len);
+                c.line(w, h + BLEED, w, h + BLEED + len);
+                c.restore();
+            }
+            c.finish()
+        })
+        .collect()
+}
+
 // ------------------------------------------------------------------ 招待状カード
 
 enum Block {

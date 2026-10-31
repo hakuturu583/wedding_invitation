@@ -148,6 +148,20 @@ impl Canvas {
         self.page.ops.push(op);
     }
 
+    /// 別のページを (x, y) に置く。clip はそのページの座標で、描く範囲を切り抜く(面付け用).
+    pub fn place(&mut self, page: &Page, x: f32, y: f32, clip: Rect) {
+        self.save();
+        self.translate(x, y);
+        self.op(Op::ClipRect {
+            x: clip[0],
+            y: clip[1],
+            w: clip[2] - clip[0],
+            h: clip[3] - clip[1],
+        });
+        self.page.ops.extend(page.ops.iter().cloned());
+        self.restore();
+    }
+
     pub fn save(&mut self) {
         self.op(Op::Save);
     }

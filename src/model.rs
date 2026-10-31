@@ -337,6 +337,8 @@ impl Event {
 pub struct Options {
     pub crop_marks: bool,
     pub envelope_back: bool,
+    /// 案内図を中綴じ冊子用に 1 面 2 ページずつ並べる
+    pub booklet: bool,
 }
 
 impl Default for Options {
@@ -344,6 +346,7 @@ impl Default for Options {
         Options {
             crop_marks: true,
             envelope_back: true,
+            booklet: false,
         }
     }
 }
