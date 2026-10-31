@@ -31,6 +31,7 @@ let previewTimer = null;
 // 案内図
 let accessInfo = { access: { title: "", routes: [], steps: [] }, modes: [], max_routes: 8, max_steps: 6 };
 let mapPhotoId = "";
+let floorPhotoId = "";
 let cardPhotoId = "";
 const photoUrls = new Map(); // 写真 ID -> 画面表示用の data URL
 const STEP_EDGE = 1200; // 道順の写真の長辺(px)
@@ -289,6 +290,7 @@ async function restorePhotos(state) {
   const ids = [
     state?.card?.photo,
     access?.map_photo,
+    access?.floor_map,
     ...(access?.steps || []).map((s) => s.photo),
     ...(access?.car_steps || []).map((s) => s.photo),
   ].filter(Boolean);
@@ -324,6 +326,12 @@ function setMapPhoto(id) {
   mapPhotoId = id || "";
   setThumb($("map-thumb"), mapPhotoId, "地図の画像(スクリーンショットなど)");
   $("map-remove").hidden = !mapPhotoId;
+}
+
+function setFloorPhoto(id) {
+  floorPhotoId = id || "";
+  setThumb($("floor-thumb"), floorPhotoId, "館内図の画像");
+  $("floor-remove").hidden = !floorPhotoId;
 }
 
 function addRoute(route = {}) {
@@ -446,6 +454,8 @@ function access() {
   return {
     title: form.elements.access_title.value.trim() || "ご案内図",
     map_photo: mapPhotoId,
+    floor_map: floorPhotoId,
+    floor_map_title: form.elements.floor_map_title.value.trim(),
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
@@ -468,6 +478,8 @@ function fillAccess(a) {
   const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
   (design || form.querySelector("input[name=access_design]")).checked = true;
   setMapPhoto(value.map_photo);
+  setFloorPhoto(value.floor_map);
+  form.elements.floor_map_title.value = value.floor_map_title || "";
   $("routes").innerHTML = "";
   (value.routes || []).forEach((r) => addRoute(r));
   $("steps").innerHTML = "";
@@ -681,6 +693,7 @@ async function importXlsx(file) {
     imported.access = {
       ...imported.access,
       map_photo: mapPhotoId,
+      floor_map: floorPhotoId,
       steps: mergeCaptions(steps(), imported.access?.steps),
       car_steps: mergeCaptions(steps($("car-steps")), imported.access?.car_steps),
     };
@@ -726,6 +739,25 @@ function bindEvents() {
     } catch (err) {
       showError(`画像を読み込めませんでした: ${err.message || err}`);
     }
+  });
+  $("floor-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const id = newPhotoId();
+      await registerPhoto(id, file, wasm.maxPhotoEdge(), true);
+      forgetPhoto(floorPhotoId);
+      setFloorPhoto(id);
+      changed();
+    } catch (err) {
+      showError(`画像を読み込めませんでした: ${err.message || err}`);
+    }
+  });
+  $("floor-remove").addEventListener("click", () => {
+    forgetPhoto(floorPhotoId);
+    setFloorPhoto("");
+    changed();
   });
   $("layouts").addEventListener("change", () => setCardPhoto(cardPhotoId));
   $("card-photo-file").addEventListener("change", async (e) => {

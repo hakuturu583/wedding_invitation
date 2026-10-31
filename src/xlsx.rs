@@ -198,6 +198,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "お車の道順写真(別ページ)の見出し。空なら「お車でご来場の方」。写真は画面で追加",
     },
     SettingRow {
+        label: "館内図の見出し",
+        kind: Kind::Text,
+        slot: Slot::Access(|a| &mut a.floor_map_title),
+        help: "館内図(別ページ)の見出し。空なら「館内図」。画像は画面で追加",
+    },
+    SettingRow {
         label: "案内図の補足",
         kind: Kind::Multiline,
         slot: Slot::Access(|a| &mut a.note),
@@ -1147,6 +1153,7 @@ mod tests {
         o.guests.clear();
         o.card.photo.clear();
         o.access.map_photo.clear();
+        o.access.floor_map.clear();
         for st in o.access.steps.iter_mut().chain(o.access.car_steps.iter_mut()) {
             st.photo.clear();
         }
@@ -1203,6 +1210,8 @@ mod tests {
                 steps_title: "南海なんば駅からの道順".into(),
                 car_steps: vec![step("c1", "6F ロビー直結の車寄せへ")],
                 car_steps_title: "お車の方".into(),
+                floor_map: "floor".into(),
+                floor_map_title: "ホテル館内図".into(),
             },
             card: crate::model::CardStyle {
                 layout: "photo".into(),

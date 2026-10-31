@@ -379,6 +379,8 @@ pub struct AccessRoute {
 pub const DEFAULT_STEPS_TITLE: &str = "最寄り駅からの道順";
 /// もう 1 つの道順の見出しの既定値
 pub const DEFAULT_CAR_STEPS_TITLE: &str = "お車でご来場の方";
+/// 館内図の見出しの既定値
+pub const DEFAULT_FLOOR_MAP_TITLE: &str = "館内図";
 
 /// 最寄り駅からの道順の 1 枚(写真と説明).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -410,6 +412,10 @@ pub struct Access {
     pub car_steps: Vec<RouteStep>,
     /// もう 1 つの道順の見出し(空なら「お車でご来場の方」)
     pub car_steps_title: String,
+    /// 館内図の画像(photos の ID)。あれば別のページに大きく載せる
+    pub floor_map: String,
+    /// 館内図の見出し(空なら「館内図」)
+    pub floor_map_title: String,
 }
 
 impl Default for Access {
@@ -442,6 +448,8 @@ impl Default for Access {
             steps_title: String::new(),
             car_steps: Vec::new(),
             car_steps_title: String::new(),
+            floor_map: String::new(),
+            floor_map_title: String::new(),
         }
     }
 }
@@ -484,6 +492,8 @@ impl Access {
             steps_title: clean(&self.steps_title, 40),
             car_steps,
             car_steps_title: clean(&self.car_steps_title, 40),
+            floor_map: clean(&self.floor_map, 64),
+            floor_map_title: clean(&self.floor_map_title, 40),
             orientation: if self.orientation == LANDSCAPE {
                 LANDSCAPE
             } else {
@@ -521,6 +531,15 @@ impl Access {
         }
     }
 
+    /// 館内図の見出し.
+    pub fn floor_map_heading(&self) -> &str {
+        if self.floor_map_title.is_empty() {
+            DEFAULT_FLOOR_MAP_TITLE
+        } else {
+            &self.floor_map_title
+        }
+    }
+
     pub fn is_landscape(&self) -> bool {
         self.orientation == LANDSCAPE
     }
@@ -530,6 +549,7 @@ impl Access {
             && self.routes.is_empty()
             && self.steps.is_empty()
             && self.car_steps.is_empty()
+            && self.floor_map.is_empty()
             && self.note.is_empty()
     }
 }

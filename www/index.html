@@ -120,6 +120,18 @@
       <div id="steps" class="steps"></div>
       <label class="button-like">＋ 写真を追加<input type="file" id="step-files" accept="image/*" multiple hidden></label>
 
+      <h3>館内図(別ページ)</h3>
+      <div class="grid">
+        <label class="wide">見出し<input name="floor_map_title" placeholder="館内図"></label>
+      </div>
+      <div class="photo-slot" id="floor-slot">
+        <div class="thumb" id="floor-thumb"><span>館内図の画像</span></div>
+        <div class="photo-actions">
+          <label class="button-like">画像を選ぶ<input type="file" id="floor-file" accept="image/*" hidden></label>
+          <button type="button" id="floor-remove" class="link">削除</button>
+        </div>
+      </div>
+
       <h3>お車の道順(別ページ)</h3>
       <div class="grid">
         <label class="wide">見出し<input name="car_steps_title" placeholder="お車でご来場の方"></label>

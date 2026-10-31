@@ -438,14 +438,7 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d
 /// 道順の写真を x0 から幅 content_w の中に並べる.
 #[allow(clippy::too_many_arguments)]
 fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f32, mut y: f32, grid: &Grid, s: f32) {
-    c.set_fill(d.accent);
-    c.set_font(MINCHO, 7.2);
-    let heading = access.steps_heading();
-    let hw = fonts::text_width(MINCHO, heading, 7.2);
-    c.draw_string(x0, y - 7.2, heading);
-    c.set_stroke(d.sub);
-    c.set_line_width(0.35);
-    c.line(x0 + hw + 2.0 * MM, y - 7.2 * 0.65, x0 + content_w, y - 7.2 * 0.65);
+    draw_section_heading(c, d, access.steps_heading(), x0, content_w, y);
     y -= STEPS_HEADER;
 
     let (pw, ph) = step_box(content_w, grid, s);
@@ -495,6 +488,17 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
         }
         y -= ph + 1.2 * MM + caption_h + STEP_GAP_Y;
     }
+}
+
+/// 「最寄り駅からの道順」などの小見出しと、その右に伸ばす罫線.
+fn draw_section_heading(c: &mut Canvas, d: &Design, heading: &str, x0: f32, w: f32, y: f32) {
+    c.set_fill(d.accent);
+    c.set_font(MINCHO, 7.2);
+    let hw = fonts::text_width(MINCHO, heading, 7.2);
+    c.draw_string(x0, y - 7.2, heading);
+    c.set_stroke(d.sub);
+    c.set_line_width(0.35);
+    c.line(x0 + hw + 2.0 * MM, y - 7.2 * 0.65, x0 + w, y - 7.2 * 0.65);
 }
 
 /// 下端の余白。デザインの下の飾り(水引・草花など)に本文が重ならないようにする.
@@ -667,6 +671,15 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     if two_sided {
         pages.push(page(access, options, d, "(裏)", |c| {
             draw_steps_page(c, event, access, d, content_w, max_cols)
+        }));
+    }
+    // 館内図は別のページに大きく
+    if photos::has(&access.floor_map) {
+        pages.push(page(access, options, d, "(館内図)", |c| {
+            let y = draw_header(c, event, access, d);
+            draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
+            let top = y - STEPS_HEADER;
+            draw_contain(c, &access.floor_map, MARGIN, foot(d), content_w, top - foot(d));
         }));
     }
     // もう 1 つの道順(お車など)は別のページに
