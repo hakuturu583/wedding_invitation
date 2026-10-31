@@ -696,17 +696,21 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     let car = access.car_route();
     let car_note = access.car_note.as_str();
     // 道順のページが 2 つあり、同じ列数で並ぶなら、写真の大きさを小さいほうにそろえる
-    let mut station_fit = steps_fit(event, access, d, content_w, max_cols, "");
-    let mut car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note);
+    let mut station_fit = steps_fit(event, access, d, content_w, max_cols, &access.steps_note, 0.0);
+    let mut car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note, 0.0);
     let paired = two_sided && !access.car_steps.is_empty() && station_fit.0.cols == car_fit.0.cols;
     if paired {
+        // 案内の枠も高いほうにそろえてから、写真の大きさを小さいほうにそろえる
+        let box_h = station_fit.2.max(car_fit.2);
+        station_fit = steps_fit(event, access, d, content_w, max_cols, &access.steps_note, box_h);
+        car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note, box_h);
         let s = station_fit.1.min(car_fit.1);
         station_fit.1 = s;
         car_fit.1 = s;
     }
     if two_sided {
         pages.push(page(access, options, d, "(裏)", |c| {
-            draw_steps_page(c, event, access, d, content_w, "", station_fit, !paired)
+            draw_steps_page(c, event, access, d, content_w, &access.steps_note, station_fit, !paired)
         }));
     }
     // もう 1 つの道順(お車など)は別のページに
@@ -721,7 +725,7 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             let y = draw_header(c, event, access, d);
             draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
-            let box_h = draw_note_box(c, d, content_w, &access.floor_note);
+            let box_h = draw_note_box(c, d, content_w, &access.floor_note, 0.0);
             let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
             draw_contain(c, &access.floor_map, MARGIN, bottom, content_w, top - bottom);
         }));
@@ -731,7 +735,8 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
 
 /// 見出しと道順写真だけのページ.
 /// 下端に、枠で囲んだ案内文を描く。描いた枠の高さを返す(案内文がなければ 0).
-fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str) -> f32 {
+/// min_h より低ければ min_h の高さにして、文字を上下の中央に置く.
+fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str, min_h: f32) -> f32 {
     const PAD: f32 = 2.5 * MM;
     // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
     // 「＊」(または「*」)で始まる行は注記として小さめの文字で中央にそろえる。(字下げ, 文字の大きさ, 中央, 行) の並び
@@ -767,12 +772,14 @@ fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str) -> f32 
     } else {
         lines.iter().map(|(_, size, _, _)| line_h(*size)).sum::<f32>() + 2.0 * PAD
     };
+    let natural = box_h;
+    let box_h = if natural > 0.0 { natural.max(min_h) } else { 0.0 };
     if box_h > 0.0 {
         c.set_stroke(d.sub);
         c.set_line_width(0.35);
         c.rect(MARGIN, foot(d), content_w, box_h, true, false);
         c.set_fill(d.text);
-        let mut ly = foot(d) + box_h - PAD;
+        let mut ly = foot(d) + box_h - PAD - (box_h - natural) / 2.0;
         for (indent, size, center, line) in &lines {
             let lh = line_h(*size);
             c.set_font(MINCHO, *size);
@@ -788,14 +795,23 @@ fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str) -> f32 
     box_h
 }
 
-/// 道順のページで写真に使える高さに収まる (並べ方, 縮小率).
-fn steps_fit(event: &Event, access: &Access, d: &Design, content_w: f32, max_cols: usize, note: &str) -> (Grid, f32) {
+/// 道順のページで写真に使える高さに収まる (並べ方, 縮小率)。案内の枠の高さも返す.
+fn steps_fit(
+    event: &Event,
+    access: &Access,
+    d: &Design,
+    content_w: f32,
+    max_cols: usize,
+    note: &str,
+    min_h: f32,
+) -> (Grid, f32, f32) {
     let (w, h) = postcard_size(access);
     let mut scratch = bleed_page(w, h, false);
     let y = draw_header(&mut scratch, event, access, d);
-    let box_h = draw_note_box(&mut scratch, d, content_w, note);
+    let box_h = draw_note_box(&mut scratch, d, content_w, note, min_h);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
-    choose_grid(access, content_w, y - bottom, max_cols)
+    let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
+    (grid, s, box_h)
 }
 
 /// 見出しと道順写真のページ。note があれば写真の下に枠で囲んで添える(駐車場の案内など).
@@ -807,11 +823,11 @@ fn draw_steps_page(
     d: &Design,
     content_w: f32,
     note: &str,
-    (grid, s): (Grid, f32),
+    (grid, s, min_h): (Grid, f32, f32),
     center: bool,
 ) {
     let y = draw_header(c, event, access, d);
-    let box_h = draw_note_box(c, d, content_w, note);
+    let box_h = draw_note_box(c, d, content_w, note, min_h);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
     // 余白が残るときは上下の中央に寄せる(2 つの道順のページで写真をそろえるときは上にそろえる)
     let spare = if center {

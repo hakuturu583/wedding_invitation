@@ -421,6 +421,8 @@ pub struct Access {
     pub design: String,
     /// 道順写真の見出し(空なら「最寄り駅からの道順」)
     pub steps_title: String,
+    /// 道順写真の下に添える案内(注意書きなど)
+    pub steps_note: String,
     /// もう 1 つの道順(お車など)。あれば別のページに並べる
     pub car_steps: Vec<RouteStep>,
     /// もう 1 つの道順の見出し(空なら「お車でご来場の方」)
@@ -467,6 +469,7 @@ impl Default for Access {
             orientation: PORTRAIT.into(),
             design: String::new(),
             steps_title: String::new(),
+            steps_note: String::new(),
             car_steps: Vec::new(),
             car_steps_title: String::new(),
             car_note: String::new(),
@@ -514,6 +517,7 @@ impl Access {
             steps,
             note: clean(&self.note, MAX_MESSAGE_LEN),
             steps_title: clean(&self.steps_title, 40),
+            steps_note: clean(&self.steps_note, MAX_MESSAGE_LEN),
             car_steps,
             car_steps_title: clean(&self.car_steps_title, 40),
             car_note: clean(&self.car_note, MAX_MESSAGE_LEN),

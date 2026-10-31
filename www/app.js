@@ -475,6 +475,7 @@ function access() {
     steps: steps(),
     note: form.elements.access_note.value.trim(),
     steps_title: form.elements.steps_title.value.trim(),
+    steps_note: form.elements.steps_note.value.trim(),
     car_steps: steps($("car-steps")),
     car_steps_title: form.elements.car_steps_title.value.trim(),
     car_note: form.elements.car_note.value.trim(),
@@ -488,6 +489,7 @@ function fillAccess(a) {
   form.elements.access_title.value = value.title || "";
   form.elements.access_note.value = value.note || "";
   form.elements.steps_title.value = value.steps_title || "";
+  form.elements.steps_note.value = value.steps_note || "";
   form.elements.car_steps_title.value = value.car_steps_title || "";
   form.elements.car_note.value = value.car_note || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";

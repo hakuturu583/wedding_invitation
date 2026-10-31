@@ -192,6 +192,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "道順写真の見出し。空なら「最寄り駅からの道順」(例: 南海なんば駅からの道順)",
     },
     SettingRow {
+        label: "道順の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.steps_note),
+        help: "道順の写真の下に枠で添える文(例: 注意書き)",
+    },
+    SettingRow {
         label: "お車の道順の見出し",
         kind: Kind::Text,
         slot: Slot::Access(|a| &mut a.car_steps_title),
@@ -1124,6 +1130,7 @@ mod tests {
                 orientation: LANDSCAPE.into(),
                 design: "sakura".into(),
                 steps_title: "南海なんば駅からの道順".into(),
+                steps_note: "・改装工事中です".into(),
                 car_steps_title: "お車の方".into(),
                 steps: vec![
                     RouteStep {
@@ -1231,6 +1238,7 @@ mod tests {
                 orientation: LANDSCAPE.into(),
                 design: "botanical".into(),
                 steps_title: "南海なんば駅からの道順".into(),
+                steps_note: "・当日は改装工事のため、ルートが変わる場合がございます".into(),
                 car_steps: vec![step("c1", "6F ロビー直結の車寄せへ")],
                 car_steps_title: "お車の方".into(),
                 car_note: "満車の場合は\nなんばシティの駐車場へ".into(),
