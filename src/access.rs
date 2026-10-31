@@ -662,26 +662,38 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         }
         draw_note(c, &note_lines, d);
     });
-    if !two_sided {
-        return vec![front];
+    let mut pages = vec![front];
+    if two_sided {
+        pages.push(page(access, options, d, "(裏)", |c| {
+            draw_steps_page(c, event, access, d, content_w, max_cols)
+        }));
     }
-    let back = page(access, options, d, "(裏)", |c| {
-        let y = draw_header(c, event, access, d);
-        let (grid, s) = choose_grid(access, content_w, y - foot(d), max_cols);
-        // 余白が残るときは上下の中央に寄せる
-        let spare = (y - foot(d) - steps_height(access, content_w, &grid, s)).max(0.0);
-        draw_steps(
-            c,
-            access,
-            d,
-            MARGIN,
-            content_w,
-            y - (spare / 2.0).min(12.0 * MM),
-            &grid,
-            s,
-        );
-    });
-    vec![front, back]
+    // もう 1 つの道順(お車など)は別のページに
+    if !access.car_steps.is_empty() {
+        let car = access.car_route();
+        pages.push(page(access, options, d, "(お車)", |c| {
+            draw_steps_page(c, event, &car, d, content_w, max_cols)
+        }));
+    }
+    pages
+}
+
+/// 見出しと道順写真だけのページ.
+fn draw_steps_page(c: &mut Canvas, event: &Event, access: &Access, d: &Design, content_w: f32, max_cols: usize) {
+    let y = draw_header(c, event, access, d);
+    let (grid, s) = choose_grid(access, content_w, y - foot(d), max_cols);
+    // 余白が残るときは上下の中央に寄せる
+    let spare = (y - foot(d) - steps_height(access, content_w, &grid, s)).max(0.0);
+    draw_steps(
+        c,
+        access,
+        d,
+        MARGIN,
+        content_w,
+        y - (spare / 2.0).min(12.0 * MM),
+        &grid,
+        s,
+    );
 }
 
 #[cfg(test)]

@@ -317,6 +317,14 @@ fn access_map_is_postcard_with_cmyk_photos() {
     let pages = doc.get_pages();
     assert_eq!(pages.len(), 2);
     assert_eq!(assert_images_cmyk(&doc, pages[&2]), 6, "裏は道順の写真");
+    // お車の道順は別のページ(表・裏のあと)に並べる
+    let mut o = access_order(true, 3);
+    o.access.car_steps = o.access.steps.clone();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 3);
+    assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "お車の道順の写真");
     // 交通手段がなければ道順写真 6 枚だけで 1 ページ
     let mut o = access_order(false, 6);
     o.access.routes.clear();

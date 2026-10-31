@@ -192,6 +192,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "道順写真の見出し。空なら「最寄り駅からの道順」(例: 南海なんば駅からの道順)",
     },
     SettingRow {
+        label: "お車の道順の見出し",
+        kind: Kind::Text,
+        slot: Slot::Access(|a| &mut a.car_steps_title),
+        help: "お車の道順写真(別ページ)の見出し。空なら「お車でご来場の方」。写真は画面で追加",
+    },
+    SettingRow {
         label: "案内図の補足",
         kind: Kind::Multiline,
         slot: Slot::Access(|a| &mut a.note),
@@ -1032,6 +1038,7 @@ mod tests {
                 orientation: LANDSCAPE.into(),
                 design: "sakura".into(),
                 steps_title: "南海なんば駅からの道順".into(),
+                car_steps_title: "お車の方".into(),
                 ..crate::model::Access::default()
             },
             design: "yuki".into(),
@@ -1072,6 +1079,7 @@ mod tests {
         assert!(got.access.is_landscape(), "案内図の向きも残る");
         assert_eq!(got.access.design, "sakura", "案内図のデザインも残る");
         assert_eq!(got.access.steps_title, "南海なんば駅からの道順", "道順の見出しも残る");
+        assert_eq!(got.access.car_steps_title, "お車の方", "お車の道順の見出しも残る");
         assert_eq!(got.card.layout, "vertical", "招待状のレイアウトも残る");
         assert_eq!(
             (got.access.title.as_str(), got.access.note.as_str()),
