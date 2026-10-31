@@ -325,7 +325,17 @@ fn access_map_is_postcard_with_cmyk_photos() {
     let pages = doc.get_pages();
     assert_eq!(pages.len(), 3);
     assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "お車の道順の写真");
-    // 館内図は別のページ(道順のあと)に 1 枚
+    // 館内図は最後のページ(お車の道順のあと)に 1 枚
+    let mut o = access_order(true, 3);
+    o.access.floor_map = "map".into();
+    o.access.car_steps = o.access.steps.clone();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 4);
+    assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "3 ページ目はお車の道順");
+    assert_eq!(assert_images_cmyk(&doc, pages[&4]), 1, "4 ページ目は館内図");
+    // 館内図だけなら道順のあとに 1 枚
     let mut o = access_order(true, 3);
     o.access.floor_map = "map".into();
     let pdf = build_pdf(&o, Doc::Access).unwrap();

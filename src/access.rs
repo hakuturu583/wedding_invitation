@@ -673,20 +673,20 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             draw_steps_page(c, event, access, d, content_w, max_cols)
         }));
     }
-    // 館内図は別のページに大きく
+    // もう 1 つの道順(お車など)は別のページに
+    if !access.car_steps.is_empty() {
+        let car = access.car_route();
+        pages.push(page(access, options, d, "(お車)", |c| {
+            draw_steps_page(c, event, &car, d, content_w, max_cols)
+        }));
+    }
+    // 館内図は最後のページに大きく
     if photos::has(&access.floor_map) {
         pages.push(page(access, options, d, "(館内図)", |c| {
             let y = draw_header(c, event, access, d);
             draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
             draw_contain(c, &access.floor_map, MARGIN, foot(d), content_w, top - foot(d));
-        }));
-    }
-    // もう 1 つの道順(お車など)は別のページに
-    if !access.car_steps.is_empty() {
-        let car = access.car_route();
-        pages.push(page(access, options, d, "(お車)", |c| {
-            draw_steps_page(c, event, &car, d, content_w, max_cols)
         }));
     }
     pages
