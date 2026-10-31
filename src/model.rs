@@ -375,6 +375,9 @@ pub struct AccessRoute {
     pub text: String,
 }
 
+/// 道順写真の見出しの既定値
+pub const DEFAULT_STEPS_TITLE: &str = "最寄り駅からの道順";
+
 /// 最寄り駅からの道順の 1 枚(写真と説明).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -399,6 +402,8 @@ pub struct Access {
     pub orientation: String,
     /// 案内図のデザイン(空なら招待状と同じ)
     pub design: String,
+    /// 道順写真の見出し(空なら「最寄り駅からの道順」)
+    pub steps_title: String,
 }
 
 impl Default for Access {
@@ -428,6 +433,7 @@ impl Default for Access {
             note: String::new(),
             orientation: PORTRAIT.into(),
             design: String::new(),
+            steps_title: String::new(),
         }
     }
 }
@@ -464,6 +470,7 @@ impl Access {
             routes,
             steps,
             note: clean(&self.note, MAX_MESSAGE_LEN),
+            steps_title: clean(&self.steps_title, 40),
             orientation: if self.orientation == LANDSCAPE {
                 LANDSCAPE
             } else {
@@ -475,6 +482,15 @@ impl Access {
             } else {
                 String::new()
             },
+        }
+    }
+
+    /// 道順写真の見出し.
+    pub fn steps_heading(&self) -> &str {
+        if self.steps_title.is_empty() {
+            DEFAULT_STEPS_TITLE
+        } else {
+            &self.steps_title
         }
     }
 

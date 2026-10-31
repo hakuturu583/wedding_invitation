@@ -439,7 +439,7 @@ fn draw_routes(c: &mut Canvas, routes: &[(&str, Vec<String>)], st: RouteStyle, d
 fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f32, mut y: f32, grid: &Grid, s: f32) {
     c.set_fill(d.accent);
     c.set_font(MINCHO, 7.2);
-    let heading = "最寄り駅からの道順";
+    let heading = access.steps_heading();
     let hw = fonts::text_width(MINCHO, heading, 7.2);
     c.draw_string(x0, y - 7.2, heading);
     c.set_stroke(d.sub);

@@ -435,6 +435,7 @@ function access() {
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
+    steps_title: form.elements.steps_title.value.trim(),
     orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
     design: form.querySelector("input[name=access_design]:checked")?.value || "",
   };
@@ -444,6 +445,7 @@ function fillAccess(a) {
   const value = { ...accessInfo.access, ...(a || {}) };
   form.elements.access_title.value = value.title || "";
   form.elements.access_note.value = value.note || "";
+  form.elements.steps_title.value = value.steps_title || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
   form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
   const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
