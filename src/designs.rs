@@ -726,6 +726,16 @@ fn white_card(c: &mut Canvas, _d: &Design, w: f32, h: f32, _bleed: f32) {
     white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.95);
 }
 
+/// 案内図(ハガキ)の背景と飾り。写真が並ぶので、ホワイトだけ角の花を小さくする.
+pub fn draw_access(c: &mut Canvas, d: &Design, w: f32, h: f32, bleed: f32) {
+    if d.key == "white" {
+        white_corner(c, 4.5 * MM, h - 4.5 * MM, 1.0, -1.0, MM * 0.75);
+        white_corner(c, w - 4.5 * MM, 4.5 * MM, -1.0, 1.0, MM * 0.75);
+    } else {
+        (d.draw_card)(c, d, w, h, bleed);
+    }
+}
+
 fn white_envelope(c: &mut Canvas, _d: &Design, _w: f32, _h: f32) {
     white_corner(c, 7.0 * MM, 7.0 * MM, 1.0, 1.0, MM * 0.75);
 }

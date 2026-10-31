@@ -357,7 +357,7 @@ fn draw_header(c: &mut Canvas, event: &Event, access: &Access, d: &Design) -> f3
     // 招待状と同じ背景と飾り。塗り足しの外にはみ出さないよう切り抜く
     c.save();
     c.clip_rect(-BLEED, -BLEED, w + 2.0 * BLEED, h + 2.0 * BLEED);
-    (d.draw_card)(c, d, w, h, BLEED);
+    designs::draw_access(c, d, w, h, BLEED);
     c.restore();
 
     let k = if compact { 0.8 } else { 1.0 };
@@ -494,7 +494,11 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
 
 /// 下端の余白。デザインの下の飾り(水引・草花など)に本文が重ならないようにする.
 fn foot(d: &Design) -> f32 {
-    (d.bottom_margin - 4.0 * MM).max(MARGIN)
+    match d.key {
+        // ホワイトは右下の線画の花が縦に 24mm ほど伸びる
+        "white" => 24.0 * MM,
+        _ => (d.bottom_margin - 4.0 * MM).max(MARGIN),
+    }
 }
 
 fn draw_note(c: &mut Canvas, lines: &[String], d: &Design) {
