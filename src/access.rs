@@ -504,8 +504,8 @@ fn draw_section_heading(c: &mut Canvas, d: &Design, heading: &str, x0: f32, w: f
 /// 下端の余白。デザインの下の飾り(水引・草花など)に本文が重ならないようにする.
 fn foot(d: &Design) -> f32 {
     match d.key {
-        // ホワイトは右下の線画の花が縦に 24mm ほど伸びる
-        "white" => 24.0 * MM,
+        // ホワイトは右下の線画の花が縦に 24mm ほど伸び、枠の角とも離す
+        "white" => 27.0 * MM,
         _ => (d.bottom_margin - 4.0 * MM).max(MARGIN),
     }
 }
@@ -706,11 +706,26 @@ fn draw_steps_page(
     let y = draw_header(c, event, access, d);
     const PAD: f32 = 2.5 * MM;
     let lh = NOTE_SIZE * 1.6;
-    let lines = if note.is_empty() {
-        Vec::new()
-    } else {
-        wrap_phrases(note, MINCHO, NOTE_SIZE, content_w - 2.0 * PAD)
-    };
+    // 「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。(字下げ, 行) の並び
+    let text_w = content_w - 2.0 * PAD;
+    let mut lines: Vec<(f32, String)> = Vec::new();
+    for para in note.lines().filter(|l| !l.trim().is_empty()) {
+        let (bullet, body) = match para.strip_prefix('・') {
+            Some(rest) => ("・", rest),
+            None => ("", para),
+        };
+        let indent = fonts::text_width(MINCHO, bullet, NOTE_SIZE);
+        for (i, line) in wrap_phrases(body, MINCHO, NOTE_SIZE, text_w - indent)
+            .into_iter()
+            .enumerate()
+        {
+            if i == 0 {
+                lines.push((0.0, format!("{bullet}{line}")));
+            } else {
+                lines.push((indent, line));
+            }
+        }
+    }
     let box_h = if lines.is_empty() {
         0.0
     } else {
@@ -723,8 +738,12 @@ fn draw_steps_page(
         c.set_fill(d.text);
         c.set_font(MINCHO, NOTE_SIZE);
         let mut ly = foot(d) + box_h - PAD;
-        for line in &lines {
-            c.draw_string(MARGIN + PAD, ly - lh + NOTE_SIZE * 0.42 + (lh - NOTE_SIZE) / 2.0, line);
+        for (indent, line) in &lines {
+            c.draw_string(
+                MARGIN + PAD + indent,
+                ly - lh + NOTE_SIZE * 0.42 + (lh - NOTE_SIZE) / 2.0,
+                line,
+            );
             ly -= lh;
         }
     }
