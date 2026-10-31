@@ -307,10 +307,33 @@ fn access_map_is_postcard_with_cmyk_photos() {
     assert_eq!(assert_images_cmyk(&doc, pages[&1]), 1, "表は地図");
     assert_eq!(assert_images_cmyk(&doc, pages[&2]), 4, "裏は道順の写真");
     // どちらか一方なら 1 ページ
-    for (map, steps) in [(true, 0), (false, 6), (false, 0)] {
+    for (map, steps) in [(true, 0), (false, 2), (false, 0)] {
         let pdf = build_pdf(&access_order(map, steps), Doc::Access).unwrap();
         assert_eq!(assert_print_ready(&pdf).get_pages().len(), 1, "{map} {steps}");
     }
+    // 地図がなくても、交通手段と道順写真 6 枚を 1 ページに積むと写真が小さくなるので表裏にする
+    let pdf = build_pdf(&access_order(false, 6), Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 2);
+    assert_eq!(assert_images_cmyk(&doc, pages[&2]), 6, "裏は道順の写真");
+    // お車の道順は別のページ(表・裏のあと)に並べる
+    let mut o = access_order(true, 3);
+    o.access.car_steps = o.access.steps.clone();
+    let pdf = build_pdf(&o, Doc::Access).unwrap();
+    let doc = assert_print_ready(&pdf);
+    let pages = doc.get_pages();
+    assert_eq!(pages.len(), 3);
+    assert_eq!(assert_images_cmyk(&doc, pages[&3]), 3, "お車の道順の写真");
+    // 交通手段がなければ道順写真 6 枚だけで 1 ページ
+    let mut o = access_order(false, 6);
+    o.access.routes.clear();
+    assert_eq!(
+        assert_print_ready(&build_pdf(&o, Doc::Access).unwrap())
+            .get_pages()
+            .len(),
+        1
+    );
     // 写真を登録していない ID は描かない(エラーにしない)
     let mut o = access_order(false, 0);
     o.access.steps.push(RouteStep {

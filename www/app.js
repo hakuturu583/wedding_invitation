@@ -286,7 +286,12 @@ function forgetPhoto(id) {
 
 async function restorePhotos(state) {
   const access = state?.access;
-  const ids = [state?.card?.photo, access?.map_photo, ...(access?.steps || []).map((s) => s.photo)].filter(Boolean);
+  const ids = [
+    state?.card?.photo,
+    access?.map_photo,
+    ...(access?.steps || []).map((s) => s.photo),
+    ...(access?.car_steps || []).map((s) => s.photo),
+  ].filter(Boolean);
   for (const id of ids) {
     const rec = await dbRun("readonly", (s) => s.get(id));
     if (!rec?.blob) continue;
@@ -357,16 +362,15 @@ function routes() {
     .filter((r) => r.text);
 }
 
-function renumberSteps() {
-  [...$("steps").children].forEach((card, i, all) => {
+function renumberSteps(box = $("steps")) {
+  [...box.children].forEach((card, i, all) => {
     card.querySelector(".num").textContent = i + 1;
     card.querySelector(".up").disabled = i === 0;
     card.querySelector(".down").disabled = i === all.length - 1;
   });
 }
 
-function addStep(step = {}) {
-  const box = $("steps");
+function addStep(step = {}, box = $("steps")) {
   if (box.children.length >= accessInfo.max_steps) return null;
   const card = document.createElement("div");
   card.className = "step-card";
@@ -403,29 +407,39 @@ function addStep(step = {}) {
   });
   card.querySelector(".up").addEventListener("click", () => {
     if (card.previousElementSibling) box.insertBefore(card, card.previousElementSibling);
-    renumberSteps();
+    renumberSteps(box);
     changed();
   });
   card.querySelector(".down").addEventListener("click", () => {
     if (card.nextElementSibling) box.insertBefore(card.nextElementSibling, card);
-    renumberSteps();
+    renumberSteps(box);
     changed();
   });
   card.querySelector(".remove").addEventListener("click", () => {
     forgetPhoto(card.dataset.photo);
     card.remove();
-    renumberSteps();
+    renumberSteps(box);
     changed();
   });
   box.appendChild(card);
-  renumberSteps();
+  renumberSteps(box);
   return card;
 }
 
-function steps() {
-  return [...$("steps").children]
+function steps(box = $("steps")) {
+  return [...box.children]
     .map((card) => ({ photo: card.dataset.photo || "", caption: card.querySelector("textarea").value.trim() }))
     .filter((s) => s.photo || s.caption);
+}
+
+// 今の道順写真に、Excel から読んだ説明を順番どおりに当てはめる(説明がなければ今のまま)
+function mergeCaptions(current, imported) {
+  if (!imported?.length) return current;
+  const n = Math.max(current.length, imported.length);
+  return Array.from({ length: n }, (_, i) => ({
+    photo: current[i]?.photo || "",
+    caption: imported[i]?.caption ?? current[i]?.caption ?? "",
+  }));
 }
 
 function access() {
@@ -435,6 +449,9 @@ function access() {
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
+    steps_title: form.elements.steps_title.value.trim(),
+    car_steps: steps($("car-steps")),
+    car_steps_title: form.elements.car_steps_title.value.trim(),
     orientation: form.querySelector("input[name=access_orientation]:checked")?.value || "portrait",
     design: form.querySelector("input[name=access_design]:checked")?.value || "",
   };
@@ -444,6 +461,8 @@ function fillAccess(a) {
   const value = { ...accessInfo.access, ...(a || {}) };
   form.elements.access_title.value = value.title || "";
   form.elements.access_note.value = value.note || "";
+  form.elements.steps_title.value = value.steps_title || "";
+  form.elements.car_steps_title.value = value.car_steps_title || "";
   const orientation = value.orientation === "landscape" ? "landscape" : "portrait";
   form.querySelector(`input[name=access_orientation][value=${orientation}]`).checked = true;
   const design = form.querySelector(`input[name=access_design][value="${CSS.escape(value.design || "")}"]`);
@@ -453,18 +472,20 @@ function fillAccess(a) {
   (value.routes || []).forEach((r) => addRoute(r));
   $("steps").innerHTML = "";
   (value.steps || []).forEach((s) => addStep(s));
+  $("car-steps").innerHTML = "";
+  (value.car_steps || []).forEach((s) => addStep(s, $("car-steps")));
 }
 
-async function addStepPhotos(files) {
+async function addStepPhotos(files, box = $("steps")) {
   for (const file of files) {
-    if ($("steps").children.length >= accessInfo.max_steps) {
+    if (box.children.length >= accessInfo.max_steps) {
       showError(`道順の写真は ${accessInfo.max_steps} 枚までです`);
       break;
     }
     try {
       const id = newPhotoId();
       await registerPhoto(id, file, STEP_EDGE, true);
-      addStep({ photo: id });
+      addStep({ photo: id }, box);
     } catch (err) {
       showError(`写真を読み込めませんでした: ${err.message || err}`);
     }
@@ -656,8 +677,13 @@ async function importXlsx(file) {
       return;
     }
     if (!confirm("現在の入力内容を Excel の内容で置き換えます。よろしいですか？")) return;
-    // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残す
-    imported.access = { ...imported.access, map_photo: mapPhotoId, steps: steps() };
+    // 写真は Excel に入らないので、今の地図と道順の写真はそのまま残し、説明だけ Excel のものにする
+    imported.access = {
+      ...imported.access,
+      map_photo: mapPhotoId,
+      steps: mergeCaptions(steps(), imported.access?.steps),
+      car_steps: mergeCaptions(steps($("car-steps")), imported.access?.car_steps),
+    };
     imported.card = { ...imported.card, photo: cardPhotoId };
     fill(imported);
     if (!imported.guests.length) {
@@ -730,6 +756,11 @@ function bindEvents() {
     const files = [...e.target.files];
     e.target.value = "";
     addStepPhotos(files);
+  });
+  $("car-step-files").addEventListener("change", (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    addStepPhotos(files, $("car-steps"));
   });
   $("export-guests-xlsx").addEventListener("click", () => exportGuests("xlsx"));
   $("export-guests-csv").addEventListener("click", () => exportGuests("csv"));
