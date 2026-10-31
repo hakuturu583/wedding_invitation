@@ -706,23 +706,27 @@ fn draw_steps_page(
     let y = draw_header(c, event, access, d);
     const PAD: f32 = 2.5 * MM;
     let lh = NOTE_SIZE * 1.6;
-    // 「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。(字下げ, 行) の並び
+    // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
+    // (字下げ, 行) の並び
     let text_w = content_w - 2.0 * PAD;
     let mut lines: Vec<(f32, String)> = Vec::new();
     for para in note.lines().filter(|l| !l.trim().is_empty()) {
-        let (bullet, body) = match para.strip_prefix('・') {
+        let body = para.trim_start_matches('　');
+        let level = (para.chars().count() - body.chars().count()) as f32 * NOTE_SIZE;
+        let body = body.trim_start();
+        let (bullet, body) = match body.strip_prefix('・') {
             Some(rest) => ("・", rest),
-            None => ("", para),
+            None => ("", body),
         };
-        let indent = fonts::text_width(MINCHO, bullet, NOTE_SIZE);
-        for (i, line) in wrap_phrases(body, MINCHO, NOTE_SIZE, text_w - indent)
+        let hang = fonts::text_width(MINCHO, bullet, NOTE_SIZE);
+        for (i, line) in wrap_phrases(body, MINCHO, NOTE_SIZE, text_w - level - hang)
             .into_iter()
             .enumerate()
         {
             if i == 0 {
-                lines.push((0.0, format!("{bullet}{line}")));
+                lines.push((level, format!("{bullet}{line}")));
             } else {
-                lines.push((indent, line));
+                lines.push((level + hang, line));
             }
         }
     }
