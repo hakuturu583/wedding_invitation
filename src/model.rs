@@ -431,6 +431,8 @@ pub struct Access {
     pub floor_map: String,
     /// 館内図の見出し(空なら「館内図」)
     pub floor_map_title: String,
+    /// 館内図のページの下に添える案内(工事のお知らせなど)
+    pub floor_note: String,
 }
 
 impl Default for Access {
@@ -470,6 +472,7 @@ impl Default for Access {
             car_note: String::new(),
             floor_map: String::new(),
             floor_map_title: String::new(),
+            floor_note: String::new(),
         }
     }
 }
@@ -516,6 +519,7 @@ impl Access {
             car_note: clean(&self.car_note, MAX_MESSAGE_LEN),
             floor_map: clean(&self.floor_map, 64),
             floor_map_title: clean(&self.floor_map_title, 40),
+            floor_note: clean(&self.floor_note, MAX_MESSAGE_LEN),
             orientation: if self.orientation == LANDSCAPE {
                 LANDSCAPE
             } else {

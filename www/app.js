@@ -470,6 +470,7 @@ function access() {
     map_photo: mapPhotoId,
     floor_map: floorPhotoId,
     floor_map_title: form.elements.floor_map_title.value.trim(),
+    floor_note: form.elements.floor_note.value.trim(),
     routes: routes(),
     steps: steps(),
     note: form.elements.access_note.value.trim(),
@@ -496,6 +497,7 @@ function fillAccess(a) {
   setMapPhoto(value.map_photo);
   setFloorPhoto(value.floor_map);
   form.elements.floor_map_title.value = value.floor_map_title || "";
+  form.elements.floor_note.value = value.floor_note || "";
   $("routes").innerHTML = "";
   (value.routes || []).forEach((r) => addRoute(r));
   $("steps").innerHTML = "";

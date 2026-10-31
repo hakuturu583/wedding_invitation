@@ -712,24 +712,17 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             let y = draw_header(c, event, access, d);
             draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
-            draw_contain(c, &access.floor_map, MARGIN, foot(d), content_w, top - foot(d));
+            let box_h = draw_note_box(c, d, content_w, &access.floor_note);
+            let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+            draw_contain(c, &access.floor_map, MARGIN, bottom, content_w, top - bottom);
         }));
     }
     pages
 }
 
 /// 見出しと道順写真だけのページ.
-/// note があれば写真の下に枠で囲んで添える(駐車場の案内など).
-fn draw_steps_page(
-    c: &mut Canvas,
-    event: &Event,
-    access: &Access,
-    d: &Design,
-    content_w: f32,
-    max_cols: usize,
-    note: &str,
-) {
-    let y = draw_header(c, event, access, d);
+/// 下端に、枠で囲んだ案内文を描く。描いた枠の高さを返す(案内文がなければ 0).
+fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str) -> f32 {
     const PAD: f32 = 2.5 * MM;
     // 行頭の全角空白 1 つで 1 字下げる。「・」で始まる行は、折り返した 2 行目以降を「・」の幅だけ下げる。
     // 「＊」(または「*」)で始まる行は注記として小さめの文字で中央にそろえる。(字下げ, 文字の大きさ, 中央, 行) の並び
@@ -783,6 +776,21 @@ fn draw_steps_page(
             ly -= lh;
         }
     }
+    box_h
+}
+
+/// note があれば写真の下に枠で囲んで添える(駐車場の案内など).
+fn draw_steps_page(
+    c: &mut Canvas,
+    event: &Event,
+    access: &Access,
+    d: &Design,
+    content_w: f32,
+    max_cols: usize,
+    note: &str,
+) {
+    let y = draw_header(c, event, access, d);
+    let box_h = draw_note_box(c, d, content_w, note);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
     let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
     // 余白が残るときは上下の中央に寄せる

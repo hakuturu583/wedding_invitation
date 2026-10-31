@@ -210,6 +210,12 @@ const SETTINGS: &[SettingRow] = &[
         help: "館内図(別ページ)の見出し。空なら「館内図」。画像は画面で追加",
     },
     SettingRow {
+        label: "館内図の案内",
+        kind: Kind::Multiline,
+        slot: Slot::Access(|a| &mut a.floor_note),
+        help: "館内図のページの下に枠で添える文(例: 工事のお知らせ)",
+    },
+    SettingRow {
         label: "案内図の補足",
         kind: Kind::Multiline,
         slot: Slot::Access(|a| &mut a.note),
@@ -1230,6 +1236,7 @@ mod tests {
                 car_note: "満車の場合は\nなんばシティの駐車場へ".into(),
                 floor_map: "floor".into(),
                 floor_map_title: "ホテル館内図".into(),
+                floor_note: "6F は改装工事中です".into(),
             },
             card: crate::model::CardStyle {
                 layout: "photo".into(),
