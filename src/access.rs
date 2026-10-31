@@ -318,11 +318,9 @@ fn step_box(content_w: f32, grid: &Grid, s: f32) -> (f32, f32) {
     (full_w * s, full_w * 0.75 * s)
 }
 
-/// 写真の説明の幅。写真が縮んだときは、列の幅いっぱいまで右に広げてよい.
-fn caption_w(content_w: f32, grid: &Grid, s: f32) -> f32 {
-    let full = step_box(content_w, grid, 1.0).0;
-    let pw = step_box(content_w, grid, s).0;
-    (full + pw) / 2.0
+/// 写真の説明の幅。写真が縮んでも列の幅いっぱいを使う.
+fn caption_w(content_w: f32, grid: &Grid) -> f32 {
+    step_box(content_w, grid, 1.0).0
 }
 
 fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
@@ -334,7 +332,7 @@ fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
     for row in access.steps.chunks(grid.cols) {
         let lines = row
             .iter()
-            .map(|st| caption_lines(&st.caption, caption_w(content_w, grid, s)).len())
+            .map(|st| caption_lines(&st.caption, caption_w(content_w, grid)).len())
             .max()
             .unwrap_or(0);
         total += ph + 1.2 * MM + lines as f32 * CAPTION_SIZE * CAPTION_LEADING + STEP_GAP_Y;
@@ -360,7 +358,7 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
         let height = steps_height(access, content_w, &grid, s);
         if height <= avail {
             let pw = step_box(content_w, &grid, s).0;
-            let cw = caption_w(content_w, &grid, s);
+            let cw = caption_w(content_w, &grid);
             let whole = access
                 .steps
                 .iter()
@@ -467,7 +465,7 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
     let lh = CAPTION_SIZE * CAPTION_LEADING;
     let mut number = 0;
     for row in access.steps.chunks(grid.cols) {
-        // 列は縮める前の幅で並べ、写真は列の中央に置く(説明は列の右端まで使える)
+        // 列は縮める前の幅で並べ、写真は列の左に寄せる(説明は列の幅いっぱいまで使える)
         let fw = step_box(content_w, grid, 1.0).0;
         let row_w = fw * row.len() as f32 + STEP_GAP_X * (row.len() as f32 - 1.0);
         let left = x0 + (content_w - row_w) / 2.0;
@@ -475,7 +473,7 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
         for (i, step) in row.iter().enumerate() {
             number += 1;
             let col_x = left + i as f32 * (fw + STEP_GAP_X);
-            let x = col_x + (fw - pw) / 2.0;
+            let x = col_x;
             if !draw_cover(c, &step.photo, x, y - ph, pw, ph) {
                 c.set_fill(PLACEHOLDER);
                 c.rect(x, y - ph, pw, ph, false, true);
@@ -492,7 +490,8 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
             // 同じ行の次の写真への矢印(行の折り返しは番号で順番がわかるので矢印を付けない)
             if i + 1 < row.len() {
                 let a = 1.3 * MM;
-                let (ax, ay) = (col_x + fw + STEP_GAP_X / 2.0, y - ph / 2.0);
+                // 矢印は、この写真の右端と次の写真の左端のまん中
+                let (ax, ay) = ((x + pw + col_x + fw + STEP_GAP_X) / 2.0, y - ph / 2.0);
                 let mut p = Path::new();
                 p.move_to(ax - a * 0.5, ay + a)
                     .line_to(ax + a * 0.7, ay)
@@ -610,7 +609,7 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         let rest = (y - bottom - routes_h - SECTION_GAP).max(0.0);
         let (grid, s) = choose_grid(access, content_w, rest, max_cols);
         let pw = step_box(content_w, &grid, s).0;
-        let cw = caption_w(content_w, &grid, s);
+        let cw = caption_w(content_w, &grid);
         pw < MIN_FRONT_PHOTO
             || access
                 .steps
@@ -694,16 +693,26 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
         draw_note(c, &note_lines, d);
     });
     let mut pages = vec![front];
+    let car = access.car_route();
+    let car_note = access.car_note.as_str();
+    // 道順のページが 2 つあり、同じ列数で並ぶなら、写真の大きさを小さいほうにそろえる
+    let mut station_fit = steps_fit(event, access, d, content_w, max_cols, "");
+    let mut car_fit = steps_fit(event, &car, d, content_w, max_cols, car_note);
+    let paired = two_sided && !access.car_steps.is_empty() && station_fit.0.cols == car_fit.0.cols;
+    if paired {
+        let s = station_fit.1.min(car_fit.1);
+        station_fit.1 = s;
+        car_fit.1 = s;
+    }
     if two_sided {
         pages.push(page(access, options, d, "(裏)", |c| {
-            draw_steps_page(c, event, access, d, content_w, max_cols, "")
+            draw_steps_page(c, event, access, d, content_w, "", station_fit, !paired)
         }));
     }
     // もう 1 つの道順(お車など)は別のページに
     if !access.car_steps.is_empty() {
-        let car = access.car_route();
         pages.push(page(access, options, d, "(お車)", |c| {
-            draw_steps_page(c, event, &car, d, content_w, max_cols, &access.car_note)
+            draw_steps_page(c, event, &car, d, content_w, car_note, car_fit, !paired)
         }));
     }
     // 館内図は最後のページに大きく
@@ -779,22 +788,37 @@ fn draw_note_box(c: &mut Canvas, d: &Design, content_w: f32, note: &str) -> f32 
     box_h
 }
 
-/// note があれば写真の下に枠で囲んで添える(駐車場の案内など).
+/// 道順のページで写真に使える高さに収まる (並べ方, 縮小率).
+fn steps_fit(event: &Event, access: &Access, d: &Design, content_w: f32, max_cols: usize, note: &str) -> (Grid, f32) {
+    let (w, h) = postcard_size(access);
+    let mut scratch = bleed_page(w, h, false);
+    let y = draw_header(&mut scratch, event, access, d);
+    let box_h = draw_note_box(&mut scratch, d, content_w, note);
+    let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
+    choose_grid(access, content_w, y - bottom, max_cols)
+}
+
+/// 見出しと道順写真のページ。note があれば写真の下に枠で囲んで添える(駐車場の案内など).
+#[allow(clippy::too_many_arguments)]
 fn draw_steps_page(
     c: &mut Canvas,
     event: &Event,
     access: &Access,
     d: &Design,
     content_w: f32,
-    max_cols: usize,
     note: &str,
+    (grid, s): (Grid, f32),
+    center: bool,
 ) {
     let y = draw_header(c, event, access, d);
     let box_h = draw_note_box(c, d, content_w, note);
     let bottom = foot(d) + if box_h > 0.0 { box_h + SECTION_GAP } else { 0.0 };
-    let (grid, s) = choose_grid(access, content_w, y - bottom, max_cols);
-    // 余白が残るときは上下の中央に寄せる
-    let spare = (y - bottom - steps_height(access, content_w, &grid, s)).max(0.0);
+    // 余白が残るときは上下の中央に寄せる(2 つの道順のページで写真をそろえるときは上にそろえる)
+    let spare = if center {
+        (y - bottom - steps_height(access, content_w, &grid, s)).max(0.0)
+    } else {
+        0.0
+    };
     draw_steps(
         c,
         access,
