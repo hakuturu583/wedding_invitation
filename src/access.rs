@@ -216,6 +216,8 @@ const STEP_GAP_X: f32 = 4.0 * MM;
 const STEP_GAP_Y: f32 = 2.5 * MM;
 const SECTION_GAP: f32 = 3.5 * MM;
 const STEPS_HEADER: f32 = 6.0 * MM;
+/// 交通手段と同じ面に並べるときの、道順写真の最小の幅
+const MIN_FRONT_PHOTO: f32 = 30.0 * MM;
 const MAX_MAP: f32 = 95.0 * MM;
 const NOTE_SIZE: f32 = 6.3;
 
@@ -320,11 +322,13 @@ fn steps_height(access: &Access, content_w: f32, grid: &Grid, s: f32) -> f32 {
 }
 
 /// 高さ avail に収まり、写真がいちばん大きくなる列数と縮小率.
+/// 説明が省略されない並べ方、最後の行が 1 枚だけにならない並べ方を優先する。
 /// どの並べ方でも収まらなければ、いちばん低くなる並べ方を選ぶ。
 fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> (Grid, f32) {
     const MIN_SCALE: f32 = 0.3;
     let n = access.steps.len().max(1);
-    let mut fitting: Option<(Grid, f32, f32)> = None; // (並べ方, 縮小率, 写真の幅)
+    // (並べ方, 縮小率, (説明が省略されない, 1 枚だけの行がない, 写真の幅))
+    let mut fitting: Option<(Grid, f32, (bool, bool, f32))> = None;
     let mut lowest: Option<(Grid, f32)> = None; // (並べ方, 最小の高さ)
     for cols in 1..=n.min(max_cols) {
         let grid = Grid { cols };
@@ -335,8 +339,17 @@ fn choose_grid(access: &Access, content_w: f32, avail: f32, max_cols: usize) -> 
         let height = steps_height(access, content_w, &grid, s);
         if height <= avail {
             let pw = step_box(content_w, &grid, s).0;
-            if fitting.is_none_or(|(_, _, best)| pw > best + 0.5 * MM) {
-                fitting = Some((grid, s, pw));
+            let whole = access
+                .steps
+                .iter()
+                .all(|st| wrap(&st.caption, MINCHO, CAPTION_SIZE, pw).len() <= CAPTION_LINES);
+            let balanced = cols == 1 || n <= cols || n % cols != 1;
+            let rank = (whole, balanced, pw);
+            let better = fitting.is_none_or(|(_, _, best)| {
+                (rank.0, rank.1) > (best.0, best.1) || ((rank.0, rank.1) == (best.0, best.1) && pw > best.2 + 0.5 * MM)
+            });
+            if better {
+                fitting = Some((grid, s, rank));
             }
         } else if lowest.is_none_or(|(_, h)| height < h) {
             lowest = Some((grid, height));
@@ -513,6 +526,7 @@ fn draw_note(c: &mut Canvas, lines: &[String], d: &Design) {
 }
 
 /// 地図と道順写真の両方があれば表裏 2 ページ(表: 地図・交通手段・補足、裏: 道順写真)にする.
+/// (地図がなくても、1 ページでは道順写真が小さくなりすぎるときは表裏にする)
 pub fn is_two_sided(access: &Access) -> bool {
     photos::has(&access.map_photo) && !access.steps.is_empty()
 }
@@ -557,7 +571,6 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     let max_cols = if landscape { 4 } else { 3 };
     let content_w = w - 2.0 * MARGIN;
     let has_map = photos::has(&access.map_photo);
-    let two_sided = is_two_sided(access);
     let note_lines = if access.note.is_empty() {
         Vec::new()
     } else {
@@ -565,6 +578,24 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
     };
     let note_h = note_lines.len() as f32 * NOTE_SIZE * 1.6;
     let bottom = foot(d) + if note_h > 0.0 { note_h + 2.0 * MM } else { 0.0 };
+    // 縦向きで交通手段と道順写真を 1 ページに積むと写真が小さくなる(説明が省略される)なら、
+    // 写真は裏に回す
+    let crowded = !landscape && !access.routes.is_empty() && !access.steps.is_empty() && {
+        let (_, h) = postcard_size(access);
+        let mut scratch = bleed_page(w, h, false);
+        let y = draw_header(&mut scratch, event, access, d);
+        let route_limit = (y - bottom - 28.0 * MM - 2.0 * SECTION_GAP).max(12.0 * MM);
+        let (_, _, routes_h) = fit_routes(access, content_w, route_limit);
+        let rest = (y - bottom - routes_h - SECTION_GAP).max(0.0);
+        let (grid, s) = choose_grid(access, content_w, rest, max_cols);
+        let pw = step_box(content_w, &grid, s).0;
+        pw < MIN_FRONT_PHOTO
+            || access
+                .steps
+                .iter()
+                .any(|st| wrap(&st.caption, MINCHO, CAPTION_SIZE, pw).len() > CAPTION_LINES)
+    };
+    let two_sided = is_two_sided(access) || crowded;
     // 横向きで交通手段と、地図または道順写真があるときは左右に並べる
     //   地図あり: 左に地図、右に交通手段 / 地図なし: 左に交通手段、右に道順写真
     let steps_on_front = !two_sided && !access.steps.is_empty();
@@ -629,6 +660,10 @@ pub fn access_pages(event: &Event, access: &Access, design: &str, options: &Opti
             y -= map_h + SECTION_GAP;
         }
         if !routes.is_empty() {
+            if !has_map && !with_steps {
+                // 交通手段だけの面は上下の中央に置く
+                y -= ((y - bottom - routes_h) / 2.0).max(0.0);
+            }
             y = draw_routes(c, &routes, route_style, d, MARGIN, y) - SECTION_GAP;
         }
         if with_steps {
