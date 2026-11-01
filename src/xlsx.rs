@@ -1261,6 +1261,7 @@ mod tests {
                 steps_note: "・当日は改装工事のため、ルートが変わる場合がございます".into(),
                 car_steps: vec![step("c1", "6F ロビー直結の車寄せへ")],
                 car_steps_title: "お車の方".into(),
+                steps_icon: String::new(),
                 car_note: "満車の場合は\nなんばシティの駐車場へ".into(),
                 floor_map: "floor".into(),
                 floor_map_title: "ホテル館内図".into(),

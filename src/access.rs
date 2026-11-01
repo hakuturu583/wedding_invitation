@@ -463,7 +463,12 @@ fn draw_routes(c: &mut Canvas, routes: &RouteRows, st: RouteStyle, d: &Design, x
 /// 道順の写真を x0 から幅 content_w の中に並べる.
 #[allow(clippy::too_many_arguments)]
 fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f32, mut y: f32, grid: &Grid, s: f32) {
-    draw_section_heading(c, d, access.steps_heading(), x0, content_w, y);
+    let icon = if access.steps_icon.is_empty() {
+        access.routes.first().map(|r| r.mode.as_str()).unwrap_or("train")
+    } else {
+        access.steps_icon.as_str()
+    };
+    draw_section_heading(c, d, access.steps_heading(), Some(icon), x0, content_w, y);
     y -= STEPS_HEADER;
 
     let (pw, ph) = step_box(content_w, grid, s);
@@ -520,7 +525,18 @@ fn draw_steps(c: &mut Canvas, access: &Access, d: &Design, x0: f32, content_w: f
 }
 
 /// 「最寄り駅からの道順」などの小見出しと、その右に伸ばす罫線.
-fn draw_section_heading(c: &mut Canvas, d: &Design, heading: &str, x0: f32, w: f32, y: f32) {
+/// icon があれば見出しの前に交通手段のアイコン(表の交通手段と同じもの)を置く.
+fn draw_section_heading(c: &mut Canvas, d: &Design, heading: &str, icon: Option<&str>, x0: f32, w: f32, y: f32) {
+    let x0_line = x0;
+    let x0 = match icon {
+        Some(mode) => {
+            let size = 4.6 * MM;
+            draw_icon(c, mode, x0 + size / 2.0, y - 7.2 * 0.62, size, d.accent, Cmyk::PAPER);
+            x0 + size + 1.5 * MM
+        }
+        None => x0,
+    };
+    let w = w - (x0 - x0_line);
     c.set_fill(d.accent);
     c.set_font(MINCHO, 7.2);
     let hw = fonts::text_width(MINCHO, heading, 7.2);
@@ -744,7 +760,7 @@ fn single_pages(event: &Event, access: &Access, design: &str, options: &Options)
     if photos::has(&access.floor_map) {
         pages.push(page(access, options, d, "(館内図)", |c| {
             let y = draw_header(c, event, access, d);
-            draw_section_heading(c, d, access.floor_map_heading(), MARGIN, content_w, y);
+            draw_section_heading(c, d, access.floor_map_heading(), None, MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
             let box_h = draw_note_box(
                 c,
