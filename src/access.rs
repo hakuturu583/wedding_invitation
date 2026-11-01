@@ -159,6 +159,18 @@ pub fn draw_icon(c: &mut Canvas, mode: &str, cx: f32, cy: f32, d: f32, bg: Cmyk,
                 ],
             );
         }
+        "building" => {
+            // 館内図の見出し用: 窓のあるビル
+            c.rect(-2.8, -3.8, 5.6, 7.4, false, true);
+            c.set_fill(bg);
+            for row in 0..3 {
+                for col in 0..2 {
+                    let (x, y) = (-1.9 + col as f32 * 2.3, 1.6 - row as f32 * 1.9);
+                    c.rect(x, y, 1.5, 1.1, false, true);
+                }
+            }
+            c.rect(-0.8, -3.8, 1.6, 1.6, false, true);
+        }
         _ => {
             c.circle(0.0, 0.0, 1.6, false, true);
         }
@@ -760,7 +772,7 @@ fn single_pages(event: &Event, access: &Access, design: &str, options: &Options)
     if photos::has(&access.floor_map) {
         pages.push(page(access, options, d, "(館内図)", |c| {
             let y = draw_header(c, event, access, d);
-            draw_section_heading(c, d, access.floor_map_heading(), None, MARGIN, content_w, y);
+            draw_section_heading(c, d, access.floor_map_heading(), Some("building"), MARGIN, content_w, y);
             let top = y - STEPS_HEADER;
             let box_h = draw_note_box(
                 c,
