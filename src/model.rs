@@ -430,6 +430,9 @@ pub struct Access {
     pub car_steps: Vec<RouteStep>,
     /// もう 1 つの道順の見出し(空なら「お車でご来場の方」)
     pub car_steps_title: String,
+    /// 道順の見出しに付けるアイコン(ACCESS_MODES のキー)。空なら最初の交通手段。保存はしない
+    #[serde(skip)]
+    pub steps_icon: String,
     /// もう 1 つの道順のページの下に添える案内(駐車場など)
     pub car_note: String,
     /// 館内図の画像(photos の ID)。あれば別のページに大きく載せる
@@ -475,6 +478,7 @@ impl Default for Access {
             steps_note: String::new(),
             car_steps: Vec::new(),
             car_steps_title: String::new(),
+            steps_icon: String::new(),
             car_note: String::new(),
             floor_map: String::new(),
             floor_map_title: String::new(),
@@ -523,6 +527,7 @@ impl Access {
             steps_note: clean(&self.steps_note, MAX_MESSAGE_LEN),
             car_steps,
             car_steps_title: clean(&self.car_steps_title, 40),
+            steps_icon: self.steps_icon.clone(),
             car_note: clean(&self.car_note, MAX_MESSAGE_LEN),
             floor_map: clean(&self.floor_map, 64),
             floor_map_title: clean(&self.floor_map_title, 40),
@@ -560,6 +565,7 @@ impl Access {
                 self.car_steps_title.clone()
             },
             car_steps: Vec::new(),
+            steps_icon: "car".into(),
             ..self.clone()
         }
     }
